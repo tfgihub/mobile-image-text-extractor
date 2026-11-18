@@ -22,6 +22,18 @@
     .note { color: #526071; font-size: 14px; line-height: 1.5; }
     .actions { display: flex; gap: 12px; }
     .secondary { background: #edf3fa; color: #174979; border: 1px solid #aeb8c4; }
+    #cameraPreview { width: 100%; max-height: 45vh; border-radius: 8px; background: #101820; }
+    #cameraStatus, #listError { white-space: pre-line; overflow-wrap: anywhere; }
+    #listError { color: #8a3500; }
+    .stop-card { border: 1px solid #aeb8c4; border-radius: 8px; padding: 14px; margin: 12px 0; overflow-wrap: anywhere; }
+    .stop-card h3 { margin: 0 0 8px; }
+    .stop-card.complete { background: #d3f4d8; border-color: #227a37; }
+    .found { color: #17662a; font-weight: 600; }
+    dialog { width: min(90vw, 440px); max-height: 90vh; overflow: auto; text-align: center; padding: 24px; border: 2px solid #0067d6; border-radius: 16px; }
+    dialog::backdrop { background: rgb(0 0 0 / 65%); }
+    #matchStopNumber { display: block; font-size: clamp(80px, 24vw, 150px); line-height: 1.15; font-weight: 800; color: #0067d6; }
+    #matchPackageId, #matchAddress { overflow-wrap: anywhere; }
+    #matchCount { font-size: 28px; font-weight: 700; }
   </style>
 </head>
 <body>
@@ -38,26 +50,155 @@
       <button id="copyButton" type="button" disabled>Copy List</button>
       <button id="clearButton" type="button" class="secondary" disabled>Clear</button>
     </div>
+    <section aria-labelledby="cameraHeading">
+      <h2 id="cameraHeading">Find packages with camera</h2>
+      <p class="note">Point at a printed package ID. Matching uses the full ID, including letter case. Scanning pauses for each new match until you tap OK. Stop the camera to edit your list.</p>
+      <button id="cameraButton" type="button" disabled>Open Live Camera</button>
+      <video id="cameraPreview" autoplay muted playsinline hidden aria-label="Live package camera"></video>
+      <p id="cameraStatus" role="status" aria-live="polite">Camera is off.</p>
+    </section>
+    <section aria-labelledby="progressHeading">
+      <h2 id="progressHeading">Package progress</h2>
+      <p id="listError" role="status"></p>
+      <div id="stopProgress"></div>
+      <button id="resetProgressButton" type="button" class="secondary" disabled>Reset Found Packages</button>
+    </section>
     <p class="note" id="privacy">Photos stay in your browser. Internet is required for OCR.
-      The list is not saved: copy it before refreshing or closing this tab.</p>
+      Camera frames are processed locally, not uploaded. The list and found-package progress are not saved:
+      copy your list before refreshing or closing this tab. The camera stops when you leave this page.</p>
   </main>
+  <dialog id="matchDialog" aria-labelledby="matchTitle" aria-describedby="matchCount matchPackageId matchAddress">
+    <h2 id="matchTitle">Package found at stop</h2>
+    <span id="matchStopNumber"></span>
+    <p id="matchCount"></p>
+    <p id="matchPackageId"></p>
+    <p id="matchAddress"></p>
+    <p id="matchComplete"></p>
+    <button id="matchOkButton" type="button" autofocus>OK - Resume Camera</button>
+  </dialog>
   <script type="module">
     import { updateStopList } from './stops.mjs';
+    import { getScanStops, findNextPackage, stopProgress } from './packages.mjs';
+    import { createLiveCamera } from './live-camera.mjs';
 
     const imageInput = document.getElementById('imageInput');
     const statusMessage = document.getElementById('status');
     const stopList = document.getElementById('stopList');
     const copyButton = document.getElementById('copyButton');
     const clearButton = document.getElementById('clearButton');
+    const cameraButton = document.getElementById('cameraButton');
+    const cameraPreview = document.getElementById('cameraPreview');
+    const cameraStatus = document.getElementById('cameraStatus');
+    const listError = document.getElementById('listError');
+    const progressList = document.getElementById('stopProgress');
+    const resetProgressButton = document.getElementById('resetProgressButton');
+    const matchDialog = document.getElementById('matchDialog');
+    const matchOkButton = document.getElementById('matchOkButton');
+    const found = new Set();
+    let scanStops = [];
+    let listValid = false;
+    let cameraActive = false;
+    let acknowledgeMatch;
     let processing = false;
 
     function updateButtons() {
-      copyButton.disabled = clearButton.disabled = processing || !stopList.value.trim();
+      const busy = processing || cameraActive;
+      copyButton.disabled = clearButton.disabled = busy || !stopList.value.trim();
+      imageInput.disabled = stopList.readOnly = busy;
+      cameraButton.disabled = processing || (!cameraActive && !listValid);
+      cameraButton.textContent = cameraActive ? 'Stop Camera' : 'Open Live Camera';
+      resetProgressButton.disabled = busy || !found.size;
     }
+
+    function renderProgress() {
+      const parsed = getScanStops(stopList.value);
+      scanStops = parsed.stops;
+      listValid = !parsed.error;
+      listError.textContent = parsed.error || '';
+      progressList.replaceChildren();
+      for (const stop of scanStops) {
+        const progress = stopProgress(stop, found);
+        const card = document.createElement('div');
+        card.className = 'stop-card' + (progress.complete ? ' complete' : '');
+        const heading = document.createElement('h3');
+        heading.textContent = `Stop ${stop.number}: ${stop.address}`;
+        const summary = document.createElement('p');
+        summary.textContent = `${progress.count}/${progress.total} packages found` + (progress.complete ? ' - Complete' : '');
+        const packages = document.createElement('ul');
+        for (const id of stop.packages) {
+          const item = document.createElement('li');
+          item.textContent = id + (found.has(id) ? ' - Found' : ' - Not found');
+          if (found.has(id)) item.className = 'found';
+          packages.append(item);
+        }
+        card.append(heading, summary, packages);
+        progressList.append(card);
+      }
+      updateButtons();
+    }
+
+    function dismissMatch() {
+      if (matchDialog.open) matchDialog.close();
+      const resolve = acknowledgeMatch;
+      acknowledgeMatch = null;
+      if (resolve) resolve();
+    }
+
+    const camera = createLiveCamera({
+      video: cameraPreview,
+      onActive(active) {
+        cameraActive = active;
+        cameraPreview.hidden = !active;
+        updateButtons();
+      },
+      onStatus(message) { cameraStatus.textContent = message; },
+      onStop: dismissMatch,
+      async onText(text) {
+        const match = findNextPackage(text, scanStops, found);
+        if (!match) return;
+        found.add(match.packageId);
+        renderProgress();
+        const progress = stopProgress(match.stop, found);
+        document.getElementById('matchStopNumber').textContent = String(match.stop.number);
+        document.getElementById('matchCount').textContent = `Package ${progress.count}/${progress.total}`;
+        document.getElementById('matchPackageId').textContent = match.packageId;
+        document.getElementById('matchAddress').textContent = match.stop.address;
+        document.getElementById('matchComplete').textContent = progress.complete ? 'All packages for this stop found!' : '';
+        cameraStatus.textContent = 'Match found. Scanning paused until you tap OK.';
+        await new Promise(resolve => {
+          acknowledgeMatch = resolve;
+          matchDialog.showModal();
+        });
+      }
+    });
+
+    cameraButton.addEventListener('click', () => {
+      if (cameraActive) {
+        camera.stop();
+      } else {
+        renderProgress();
+        if (listValid) camera.start();
+      }
+    });
+    matchDialog.addEventListener('cancel', event => event.preventDefault());
+    matchOkButton.addEventListener('click', () => {
+      cameraStatus.textContent = 'Scanning full package IDs... Hold the printed ID steady and in focus.';
+      dismissMatch();
+    });
+    resetProgressButton.addEventListener('click', () => {
+      if (!confirm('Reset all found-package progress? The stop list will be kept.')) return;
+      found.clear();
+      renderProgress();
+      cameraStatus.textContent = 'Found-package progress reset.';
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) camera.stop('Camera stopped because the page is in the background. Open it again to resume.');
+    });
+    window.addEventListener('pagehide', () => camera.stop());
 
     imageInput.addEventListener('change', async () => {
       const file = imageInput.files[0];
-      if (!file || processing) return;
+      if (!file || processing || cameraActive) return;
       if (file.type && !file.type.startsWith('image/')) {
         statusMessage.textContent = 'Please select an image file.';
         imageInput.value = '';
@@ -106,18 +247,17 @@
           }
         }
         processing = false;
-        imageInput.disabled = false;
         imageInput.value = '';
-        stopList.readOnly = false;
-        updateButtons();
+        renderProgress();
       }
     });
 
-    stopList.addEventListener('input', updateButtons);
+    stopList.addEventListener('input', renderProgress);
     clearButton.addEventListener('click', () => {
       if (!confirm('Clear all stops and packages from this tab?')) return;
       stopList.value = '';
-      updateButtons();
+      found.clear();
+      renderProgress();
       statusMessage.textContent = 'List cleared. Scan a photo or type your stops below.';
     });
     copyButton.addEventListener('click', async () => {
@@ -135,6 +275,7 @@
         statusMessage.textContent = 'Could not copy automatically. Touch and hold the selected text and choose Copy.';
       }
     });
+    renderProgress();
   </script>
 </body>
 </html>

@@ -39,6 +39,34 @@ The list is kept in memory in the current tab only, not saved or uploaded.
 Copy it before closing or refreshing the page. Clearing the list requires
 confirmation. The editor is read-only while a scan runs.
 
+### Live camera package matching
+
+After checking the list, tap **Open Live Camera** and allow camera access.
+The rear camera is preferred. Hold the full printed package ID steady in view;
+live OCR reads one frame at a time on the device. It reads text, not barcodes.
+Matching is exact and case-sensitive, without substring matches or guessing
+similar characters. OCR can miss an ID, especially in poor lighting or small print.
+
+Each newly found ID pauses recognition and opens a notice with a large stop
+number, the package ID, and **Package n/m** (unique packages found / total at
+that stop). Tap **OK - Resume Camera** to resume. Already-found IDs do not trigger
+another notice. If multiple IDs are visible, they are handled one at a time
+across successive frames, each requiring OK.
+
+The colored progress list below the editor turns a stop green and labels it
+**Complete** only when all its packages have been found. Explicit numbers such
+as `7.` in the editor are used as stop numbers; otherwise list order is used.
+Duplicate stop numbers and IDs assigned to multiple stops must be fixed before
+opening the camera. Duplicate IDs within a stop count once.
+
+Stop the camera to edit the list or import screenshots. Progress follows exact
+package IDs across edits, and adding a package makes a completed stop incomplete
+until that new ID is found. **Reset Found Packages** clears progress, not the
+list. **Clear** clears both. Neither the list nor progress survives a reload.
+Camera access requires HTTPS (or localhost during development). Frames are not
+uploaded. **Stop Camera**, leaving the page, or backgrounding it releases camera
+tracks; returning to the page requires opening the camera again.
+
 Photos are processed locally in your browser, not uploaded. The page downloads
 Tesseract.js 5.1.1, its WebAssembly engine, and English language data from external
 CDNs. Internet access is required, especially on first use. Large pictures can
@@ -52,7 +80,8 @@ the page selects the text so you can copy it manually.
 Run `python3 -m http.server 8080 --bind 127.0.0.1` in this directory and open
 `http://localhost:8080`. Stop the server with Ctrl+C.
 
-Run parser tests with `node --test stops.test.mjs`.
+Run parser, matching, and camera lifecycle tests with
+`node --test stops.test.mjs packages.test.mjs live-camera.test.mjs`.
 
 ## Publish
 
