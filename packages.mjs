@@ -1,4 +1,4 @@
-import { readStopList } from './stops.mjs?v=notices5';
+import { readStopList } from './stops.mjs?v=popup6';
 
 export function getScanStops(text) {
   const parsed = readStopList(text);
@@ -46,10 +46,9 @@ export function stopProgress(stop, readings) {
 export function getPackageNotice(stop, readings, shownStops) {
   const { count, total } = stopProgress(stop, readings);
   const position = count + 1;
-  const label = total === 1 ? 'Only package -' : position === total ? 'Last package -' : 'Bag';
   return {
     isNew: !shownStops.has(stop.number),
-    countLabel: `${label} ${position} of ${total}`
+    countLabel: `${position} ${position === 1 ? 'bag' : 'bags'} of ${total} ${total === 1 ? 'bag' : 'bags'}`
   };
 }
 

@@ -56,23 +56,28 @@ substitutes Q/O/0 or guesses other characters.
 
 The camera does not run OCR or load an OCR worker. Once a known code is decoded,
 it pauses and immediately displays the large stop number, decoded package code,
-and **Bag x of y**. Here, `x` is the number of unique confirmed packages for that
-stop plus this pending package; `y` is the number of unique IDs in the current
-edited screenshot list. Nothing counts until **OK - Resume**. **Rescan - Don't
-Count** dismisses the notice without changing progress, and confirmed codes
+and **x bags of y bags** (with singular "bag" for one). Here, `x` is the number
+of unique confirmed packages for that stop plus this pending package; `y` is the
+number of unique IDs in the current
+edited screenshot list. Nothing counts until **OK**. **Rescan**
+dismisses the notice without changing progress, and confirmed codes
 never count twice.
 
-The first popup for a stop number shows **New-7** (for example); later popups
-show just **7**, without a "Seen before" label. Showing the popup marks the stop
+Matched popups show only the large stop number, package code and bag progress,
+plus **OK** and **Rescan**. The first popup for a stop number adds a separate
+**NEW** badge above the number; later popups omit the badge, without a
+"Seen before" label. Showing the popup marks the stop
 as appeared even when **Rescan** is selected. This history survives stopping
 and reopening the camera or changing steps. **Reset Found Packages**, **Clear**,
 an entirely cleared editor, or a page reload starts a new sorting run and
 resets the new-stop markers. Reset is available even if a popup was shown
 without confirming any packages.
 
-A one-package stop displays **Only package - 1 of 1**. The final pending
-package at a multi-package stop displays **Last package - x of y**, distinct
-from an only-package stop. OK is still required before either completes.
+A one-package stop displays **1 bag of 1 bag**. No customer name, duplicate ID,
+total caption, "Only package"/"Last package" label or instructions clutter a
+matched popup. Screen-reader names still identify new stops and stop numbers.
+Unknown/ambiguous barcode notices retain their warning explanations and never
+count packages. OK is still required before a matched stop can complete.
 
 **This is scanned progress, not the printed bag position.** Barcodes contain
 the package ID, not `n of m bags`. Printed label totals and positions are no
@@ -119,11 +124,53 @@ Screenshot imports still use OCR and need human review.
 Run `python3 -m http.server 8080 --bind 127.0.0.1` here, then open
 `http://localhost:8080`. Stop the server with Ctrl+C.
 
-Run all tests with:
+### Regression tests
+
+Use Node.js 22 or newer. Install the test dependencies and Chromium once:
 
 ```sh
-node --test stops.test.mjs packages.test.mjs live-camera.test.mjs barcode.test.mjs
+npm ci
+npx playwright install --with-deps chromium --only-shell
+npm test
 ```
+
+**Before merging or publishing a feature, add regression coverage for its
+behavior and run `npm test`.** This runs the existing 34 unit tests followed by
+50 mobile browser integration cases. Target a workflow during development with
+`npm run test:integration -- tests/scanning.spec.mjs`, or run just the unit
+suite with `npm run test:unit`.
+
+The browser suite uses the real page, file uploads, editor, camera frame loop,
+dialogs and buttons. A real Tesseract worker reads a generated two-stop image;
+real ZXing-WASM decodes generated QR and Data Matrix frames. All test names,
+addresses, IDs and images are synthetic. Other OCR/barcode results and device
+failures are controlled to test edge cases deterministically. Pinned engines
+and English language data are served from installed test dependencies, so the
+browser tests do not depend on CDN availability or require a physical camera.
+No test hooks are shipped in the application modules.
+
+| Workflow | Regression coverage |
+| --- | --- |
+| Screenshot import | Real OCR, both screenshot formats, multiple/overlapping images, deduplicated stops and short/full IDs, edited-list merging, conflicts, orphan/clipped rows, empty/unrecognized results |
+| Import failures | Bad files, continuing after a failed image, worker startup/cleanup, disabled busy controls, invalid-editor preservation |
+| Barcode matching | Real QR/Data Matrix decoding, full/suffix and case-insensitive matches, exact-match priority, unknown/unsupported/ambiguous/multiple codes, no Q/0 guessing, duplicate suppression |
+| Notices and completion | Minimal accessible popup, separate NEW badge, per-stop history, Rescan/OK, paused decoder, scan-order counts, single/final packages, independent stop totals and completed cards |
+| Editing and reset | Cleared bullets, deletion/re-add, removing unscanned IDs/stops, empty stops/all-empty headings, current camera totals, reset without confirmations, Clear/empty editor/reload, cancelled confirmations |
+| Camera lifecycle | No camera OCR, operation without Tesseract, rear-camera constraints, locked controls, permission/decoder failures, late permission, Stop, background/pagehide and disconnection |
+| Phone UI | 320/390 px layouts, compact scrolling editor, unclipped light/dark popups and completion colors, device theme/persistence, unavailable storage, clipboard success/fallback |
+
+These are mobile Chromium tests, not a substitute for checking physical phone
+camera focus, permissions, background behavior, or Safari compatibility.
+Tests start and stop their own loopback server on port 4173; an occupied port
+fails instead of reusing an unrelated server. Failures save screenshots and
+Playwright traces under ignored `test-results/`.
+
+GitHub Actions runs `npm test` on pull requests and pushes to `main` and uploads
+failure reports for seven days. The workflow does not change repository branch
+protection or gate the existing branch-based Pages deployment; require its
+`regression` check in branch protection if a mandatory merge gate is needed.
+
+### Publishing
 
 In GitHub **Settings > Pages**, choose **Deploy from a branch**, **main**,
 and **/ (root)**. Publish only this standalone website, never private images or

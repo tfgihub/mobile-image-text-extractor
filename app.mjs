@@ -1,6 +1,6 @@
-import { readStopList, updateStopList } from './stops.mjs?v=notices5';
-import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice } from './packages.mjs?v=notices5';
-import { createLiveCamera } from './live-camera.mjs?v=notices5';
+import { readStopList, updateStopList } from './stops.mjs?v=popup6';
+import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice } from './packages.mjs?v=popup6';
+import { createLiveCamera } from './live-camera.mjs?v=popup6';
 
 const byId = id => document.getElementById(id);
 const stopList = byId('stopList');
@@ -125,17 +125,16 @@ const camera = createLiveCamera({
     pending = result;
     const matched = result.kind === 'candidate';
     const notice = matched ? getPackageNotice(result.stop, readings, shownStops) : null;
-    byId('matchTitle').textContent = matched ? 'Package found at stop' : 'Check this package';
+    byId('matchTitle').textContent = matched ? `${notice.isNew ? 'New stop' : 'Stop'} ${result.stop.number}` : 'Check this package';
+    byId('matchTitle').classList.toggle('sr-only', matched);
+    byId('matchNewBadge').hidden = !matched || !notice.isNew;
     byId('matchStopNumber').hidden = !matched;
-    byId('matchStopPrefix').textContent = matched && notice.isNew ? 'New-' : '';
-    byId('matchStopValue').textContent = matched ? String(result.stop.number) : '';
+    byId('matchStopNumber').textContent = matched ? String(result.stop.number) : '';
     byId('matchCode').textContent = result.code;
-    byId('matchPackageId').textContent = matched ? `Listed ID: ${result.packageId}` : '';
-    byId('matchAddress').textContent = matched ? result.stop.address : 'Not assigned to any stop.';
-    byId('matchExpectedCount').textContent = matched ? `Total in current list: ${result.stop.packages.length} bag(s)` : '';
     byId('matchCount').textContent = matched ? notice.countLabel : '';
-    byId('matchMessage').textContent = matched ? 'Tap OK to count this package and resume. This is scanned progress, not the printed bag position.' : result.message;
-    byId('matchOkButton').textContent = 'OK - Resume';
+    byId('matchMessage').textContent = matched ? '' : result.message;
+    byId('matchOkButton').textContent = 'OK';
+    byId('matchOkButton').setAttribute('aria-label', matched ? 'Confirm package and resume scanning' : 'Resume scanning');
     byId('matchOkButton').disabled = false;
     cameraStatus.textContent = 'Barcode decoded. Scanning paused; nothing is counted until confirmation.';
     const acknowledgement = new Promise(resolve => { releaseNotice = resolve; });

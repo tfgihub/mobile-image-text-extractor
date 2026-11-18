@@ -1,0 +1,16 @@
+{
+  "name": "mobile-image-text-extractor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "node --test stops.test.mjs packages.test.mjs live-camera.test.mjs barcode.test.mjs",
+    "test:integration": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "@tesseract.js-data/eng": "1.0.0",
+    "tesseract.js": "5.1.1",
+    "zxing-wasm": "2.2.2"
+  }
+}
