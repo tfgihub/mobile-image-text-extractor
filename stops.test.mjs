@@ -31,14 +31,15 @@ test('handles IDs on following lines and warns about incomplete or unassigned ro
   assert.deepEqual(result.stops[0].packages, ['spWrapped1']);
   assert.equal(result.stops[1].packages.length, 0);
   assert.equal(result.warnings.length, 3);
-  assert.match(result.warnings[0], /before a stop heading/);
-  assert.match(result.warnings[1], /2 package row/);
+  assert.match(result.warnings[0], /Stop not detected for package spOrphan1/);
+  assert.match(result.warnings[1], /100 Example Rd: 1 package ID not detected/);
+  assert.match(result.warnings[2], /200 Example Ave: 1 package ID not detected/);
 });
 
 test('ignores UI noise, does not invent an address, and detects missing package IDs', () => {
   assert.equal(parseStops('Edit stop\nContinue with 2 packages\nImprove the map').stops.length, 0);
-  assert.match(parseStops('Hello world').warnings[0], /No stop heading/);
-  assert.match(parseStops('100 Example Lane').warnings[0], /no recognized package/);
+  assert.match(parseStops('Hello world').warnings[0], /No stops detected/);
+  assert.match(parseStops('100 Example Lane').warnings[0], /no packages detected/);
 });
 
 test('merges repeated addresses without mutating input or changing package ID case', () => {
@@ -102,7 +103,7 @@ test('unrecognized and empty scans leave edits untouched', () => {
   const unknown = 'Unrecognized address\nUnknown spPackageABC';
   const updated = updateStopList(original, unknown);
   assert.equal(updated.text, original);
-  assert.match(updated.warnings.join(' '), /Nothing was added/);
+  assert.match(updated.warnings.join(' '), /Stop not detected for package spPackageABC/);
   assert.deepEqual(updateStopList(original, '  \n'), { text: original, warnings: [] });
 });
 
@@ -112,7 +113,7 @@ test('imports recipient references and Package ID rows, including redacted row l
     { address: 'Example Person #1234', packages: ['AB12', 'CD34', 'EF56'] },
     { address: 'Other Person #5678', packages: ['0G78'] }
   ]);
-  assert.match(parsed.warnings.join(' '), /no readable ID/);
+  assert.match(parsed.warnings.join(' '), /Other Person #5678: 1 package ID not detected/);
 });
 
 test('merges overlapping screenshots by reference despite redacted names and repeated codes', () => {
@@ -158,4 +159,19 @@ test('unlabelled alphabetic screen words are not invented as packages, but label
   assert.deepEqual(result.stops[0].packages, ['AB12', 'HPQK', 'NEXT']);
   assert.match(result.warnings.join(' '), /Unlabelled text "ALPH"/);
   assert.ok(readStopList('1. Example\n - AB1').error);
+});
+
+test('missing IDs are grouped by their stop and empty stops are identified without duplicate warnings', () => {
+  const parsed = parseStops('Alex Sample #1001\nPackage ID\nPackage ID\nJamie Example #1002\nUnknown\nPhoto required\n100 Example Lane');
+  assert.deepEqual(parsed.warnings, [
+    'Alex Sample #1001: 2 package IDs not detected.',
+    'Jamie Example #1002: 1 package ID not detected.',
+    '100 Example Lane: no packages detected.'
+  ]);
+});
+
+test('packages without a detected stop are identified by their readable IDs', () => {
+  const parsed = parseStops('Package ID\nAB12\nUnknown spOrphan2');
+  assert.deepEqual(parsed.warnings, ['Stop not detected for packages AB12, spOrphan2.']);
+  assert.deepEqual(parsed.stops, []);
 });

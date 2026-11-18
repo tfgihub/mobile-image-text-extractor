@@ -33,6 +33,15 @@ Unlabelled alphabetic four-letter text is not guessed as a package: known screen
 words such as NEXT are ignored and other uncertain rows produce a review note.
 All-letter IDs following an explicit `Package ID` label remain supported.
 
+Import feedback shows only a short completion summary. Clean images do not
+produce a log. Images needing review are listed once by filename, with the
+affected stop, missing-ID count, readable package with no detected stop, or
+assignment conflict. Unreadable/failed images and interrupted batches are
+identified explicitly. A clean subsequent import clears the previous notices.
+"No detection issues found" means no problems were flagged in the selected
+images, not a guarantee that OCR found content it could not read at all; still
+check the list against the screenshots.
+
 Review the one editable text box. Use a stop/customer heading followed by IDs,
 one per line, and leave a blank line between stops. Check OCR carefully: names,
 reference numbers, and 0/O can be misread. The importer does not guess redacted

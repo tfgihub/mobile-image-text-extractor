@@ -1,8 +1,8 @@
-import { readStopList, updateStopList } from './stops.mjs?v=saved8';
-import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice, isRunComplete, movedConfirmedPackage } from './packages.mjs?v=saved8';
-import { createLiveCamera } from './live-camera.mjs?v=saved8';
-import { packageKey } from './identity.mjs?v=saved8';
-import { runStorageKey, serializeRun, parseSavedRun } from './saved-run.mjs?v=saved8';
+import { readStopList, updateStopList } from './stops.mjs?v=summary9';
+import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice, isRunComplete, movedConfirmedPackage } from './packages.mjs?v=summary9';
+import { createLiveCamera } from './live-camera.mjs?v=summary9';
+import { packageKey } from './identity.mjs?v=summary9';
+import { runStorageKey, serializeRun, parseSavedRun } from './saved-run.mjs?v=summary9';
 
 const byId = id => document.getElementById(id);
 const stopList = byId('stopList');
@@ -288,36 +288,51 @@ stopList.addEventListener('input', () => {
 });
 stopList.addEventListener('change', renderProgress);
 
-function importMessage(text) {
+function importMessage(label, messages = []) {
   const item = document.createElement('li');
-  item.textContent = text;
+  const heading = document.createElement('strong');
+  heading.textContent = label;
+  item.append(heading);
+  if (messages.length) {
+    const list = document.createElement('ul');
+    for (const message of new Set(messages)) {
+      const detail = document.createElement('li');
+      detail.textContent = message;
+      list.append(detail);
+    }
+    item.append(list);
+  }
   byId('importMessages').append(item);
 }
 
 imageInput.addEventListener('change', async () => {
   const files = [...imageInput.files];
   if (!files.length || processing || cameraActive || awaitingRestore || storageConflict) return;
+  byId('importMessages').replaceChildren();
   if (readStopList(stopList.value).error) {
-    status.textContent = 'Fix the list format before importing more screenshots. Your list was not changed.';
+    status.textContent = 'No images processed. Fix the list format first.';
     imageInput.value = '';
     return;
   }
   processing = true;
   updateButtons();
-  byId('importMessages').replaceChildren();
   let worker;
   let succeeded = 0;
   let failed = 0;
+  let reviewImages = 0;
+  let startupFailed = false;
+  let cleanupFailed = false;
+  const imageCount = count => `${count} image${count === 1 ? '' : 's'}`;
+  status.textContent = `Processing ${imageCount(files.length)}...`;
   try {
     if (!globalThis.Tesseract) throw new Error('Screenshot OCR could not load. Check your connection.');
     worker = await Tesseract.createWorker('eng');
     await worker.setParameters({ tessedit_pageseg_mode: '11' });
     for (const [index, file] of files.entries()) {
       if (storageConflict) {
-        importMessage('Import stopped because another tab changed the saved records. Copy any unsaved edits, then reload.');
         break;
       }
-      status.textContent = `Reading screenshot ${index + 1}/${files.length}: ${file.name}`;
+      status.textContent = `Processing image ${index + 1} of ${files.length}...`;
       let bitmap;
       try {
         if (file.type && !file.type.startsWith('image/')) throw new Error('Select an image file.');
@@ -331,38 +346,59 @@ imageInput.addEventListener('change', async () => {
         context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
         const result = await worker.recognize(canvas);
         if (storageConflict) {
-          importMessage('Import stopped because another tab changed the saved records. Copy any unsaved edits, then reload.');
           break;
         }
         const updated = updateStopList(stopList.value, result.data.text);
         stopList.value = updated.text;
         succeeded++;
-        if (!result.data.text.trim()) importMessage(`${file.name}: No readable text. Nothing added.`);
-        for (const warning of updated.warnings) importMessage(`${file.name}: ${warning}`);
+        const issues = result.data.text.trim() ? updated.warnings : ['No stops or packages detected. Try a clearer image.'];
+        if (issues.length) {
+          reviewImages++;
+          importMessage(file.name, issues);
+        }
         renderProgress();
       } catch (error) {
         failed++;
+        reviewImages++;
         console.error('Screenshot import failed:', error);
-        importMessage(`${file.name}: Failed - ${error instanceof Error ? error.message : String(error)}. Other screenshots and existing edits are kept.`);
+        const message = file.type && !file.type.startsWith('image/')
+          ? 'Not an image. Choose a screenshot.'
+          : 'Could not read image. Try again or choose another screenshot.';
+        importMessage(file.name, [message]);
       } finally {
         if (bitmap) bitmap.close();
       }
     }
-    status.textContent = `Import finished: ${succeeded} image(s) read, ${failed} failed. Review the list and import notes, then continue to Step 2.`;
   } catch (error) {
+    startupFailed = true;
     console.error('Screenshot import could not start:', error);
-    status.textContent = 'Import error: ' + (error instanceof Error ? error.message : String(error)) + ' Your existing list was kept.';
   } finally {
     if (worker) {
       try { await worker.terminate(); }
       catch (error) {
+        cleanupFailed = true;
         console.error('Screenshot OCR cleanup failed:', error);
-        importMessage('OCR cleanup failed. Copy your list before reloading.');
       }
     }
     processing = false;
     imageInput.value = '';
     renderProgress();
+    if (startupFailed) {
+      status.textContent = 'No images processed. Could not start the screenshot reader. Try again.';
+    } else if (storageConflict) {
+      status.textContent = `${succeeded}/${files.length} images processed. Reload to continue.`;
+      const remaining = files.slice(succeeded + failed);
+      if (remaining.length) importMessage('Not processed', remaining.map(file => file.name));
+    } else {
+      const completed = succeeded === files.length
+        ? `${files.length > 1 ? 'All ' : ''}${imageCount(files.length)} processed.`
+        : `${succeeded}/${files.length} images processed.`;
+      let result = reviewImages
+        ? `${imageCount(reviewImages)} ${reviewImages === 1 ? 'needs' : 'need'} review below.`
+        : 'No detection issues found.';
+      if (cleanupFailed) result = `${reviewImages ? result + ' ' : ''}Reader could not close. Reload before importing again.`;
+      status.textContent = `${completed} ${result}`;
+    }
   }
 });
 
@@ -373,6 +409,7 @@ byId('clearButton').addEventListener('click', () => {
   alerted.clear();
   shownStops.clear();
   byId('importMessages').replaceChildren();
+  status.textContent = '';
   renderProgress();
 });
 byId('copyButton').addEventListener('click', async () => {

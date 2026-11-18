@@ -1,4 +1,4 @@
-import { samePackage } from './identity.mjs?v=saved8';
+import { samePackage } from './identity.mjs?v=summary9';
 
 const streetType = '(?:STREET|ST|AVENUE|AVE|ROAD|RD|PLACE|PL|DRIVE|DR|COURT|CT|WAY|LANE|LN|BOULEVARD|BLVD|CIRCLE|CIR|TERRACE|TER|PARKWAY|PKWY|HIGHWAY|HWY|TRAIL|TRL|LOOP)';
 const addressPattern = new RegExp(
@@ -22,7 +22,7 @@ export function mergeStops(existing, incoming, warnings = []) {
       const id = /^[A-Za-z0-9]{4}$/.test(rawId) ? rawId.toUpperCase() : rawId;
       const owner = merged.find(item => item.packages.some(saved => samePackage(saved, id)));
       if (owner && owner !== target) {
-        warnings.push(`Package ${id} already belongs to ${owner.address}; it was not added to ${stop.address}. Check the screenshot.`);
+        warnings.push(`Package ${id} already belongs to ${owner.address}; not added to ${stop.address}.`);
         continue;
       }
       const duplicate = target.packages.findIndex(saved => samePackage(saved, id));
@@ -39,16 +39,21 @@ export function parseStops(text) {
   const warnings = [];
   let current;
   let awaitingPackage = false;
-  let unassigned = 0;
-  let missing = 0;
+  const unassigned = [];
+  const missing = new Map();
   let pendingName = '';
   let packageRows = false;
+
+  function missingPackage() {
+    const heading = current?.address || 'Unknown stop';
+    missing.set(heading, (missing.get(heading) || 0) + 1);
+  }
 
   function addPackage(id) {
     if (current) {
       if (!current.packages.includes(id)) current.packages.push(id);
     } else {
-      unassigned++;
+      unassigned.push(id);
     }
   }
 
@@ -59,7 +64,7 @@ export function parseStops(text) {
     const address = addressLine.match(addressPattern);
     const recipient = line.match(/^(.*?)#\s*(\d{3,})\s*$/);
     if (address || recipient) {
-      if (awaitingPackage) missing++;
+      if (awaitingPackage) missingPackage();
       awaitingPackage = false;
       const heading = address ? address[0].trim() : `${recipient[1].trim() || pendingName || 'Recipient'} #${recipient[2]}`;
       current = { address: heading, packages: [] };
@@ -78,7 +83,7 @@ export function parseStops(text) {
 
     const packageRow = line.match(/\bpackage\s*[iIl1][dD]\b(.*)$/i);
     if (packageRow) {
-      if (awaitingPackage) missing++;
+      if (awaitingPackage) missingPackage();
       packageRows = true;
       const id = packageRow[1].trim().match(/^[:|=-]*\s*([A-Za-z0-9]{4})\s*$/);
       if (id) {
@@ -92,7 +97,7 @@ export function parseStops(text) {
 
     const unknown = line.match(/\bunknow[n]?\b(.*)$/i);
     if (unknown) {
-      if (awaitingPackage) missing++;
+      if (awaitingPackage) missingPackage();
       const id = unknown[1].trim().replace(/^[\s:|=-]+/, '').replace(/[\s|,;]+$/, '');
       if (/^[A-Za-z0-9_-]{4,64}$/.test(id)) {
         addPackage(id);
@@ -107,7 +112,7 @@ export function parseStops(text) {
     if (packageRows && shortId) {
       if (awaitingPackage || /\d/.test(shortId[1])) addPackage(shortId[1]);
       else if (!/^(?:SCAN|BAGS|CART|STOP|NAME|TIME|FROM|SHIP|NEXT|DONE|EDIT|VIEW|BACK|HELP|INFO|NOTE|SAVE|EXIT)$/.test(shortId[1])) {
-        warnings.push(`Unlabelled text "${shortId[1]}" was not added as a package ID. Check the screenshot and enter it manually if it is a package.`);
+        warnings.push(`Unlabelled text "${shortId[1]}" at ${current?.address || 'an unknown stop'}: check if this is a package ID.`);
       }
       awaitingPackage = false;
       continue;
@@ -122,16 +127,20 @@ export function parseStops(text) {
       } else if (awaitingPackage !== 'short' && /^[A-Za-z0-9_-]{4,64}$/.test(line) && /[0-9_-]/.test(line)) {
         addPackage(line);
       } else {
-        missing++;
+        missingPackage();
       }
       awaitingPackage = false;
     }
   }
-  if (awaitingPackage) missing++;
-  if (unassigned) warnings.push(`${unassigned} package ID(s) appeared before a stop heading. Check the screenshot and assign them manually.`);
-  if (missing) warnings.push(`${missing} package row(s) had no readable ID. Check the image and fill in missing IDs.`);
-  if (!stops.length) warnings.push('No stop heading recognized. Nothing was added. Check the screenshot or enter the stop manually.');
-  if (stops.some(stop => !stop.packages.length)) warnings.push('Some stops have no recognized package IDs. Fill them in directly in the box.');
+  if (awaitingPackage) missingPackage();
+  if (unassigned.length) warnings.push(`Stop not detected for package${unassigned.length === 1 ? '' : 's'} ${[...new Set(unassigned)].join(', ')}.`);
+  for (const [heading, count] of missing) {
+    warnings.push(`${heading}: ${count} package ID${count === 1 ? '' : 's'} not detected.`);
+  }
+  if (!stops.length && !unassigned.length) warnings.push('No stops detected. Try a clearer image.');
+  for (const stop of stops) {
+    if (!stop.packages.length && !missing.has(stop.address)) warnings.push(`${stop.address}: no packages detected.`);
+  }
   return { stops: mergeStops([], stops, warnings), warnings };
 }
 

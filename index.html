@@ -21,7 +21,7 @@
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.2/dist/iife/reader/index.js"></script>
-  <script type="module" src="./app.mjs?v=saved8"></script>
+  <script type="module" src="./app.mjs?v=summary9"></script>
   <style>
     :root {
       color-scheme: light;
@@ -82,7 +82,9 @@
     #cameraPreview { display: block; width: 100%; max-height: 48vh; margin-top: 16px; border-radius: 14px; background: #08090b; }
     #status, #cameraStatus, #listError, #importMessages, #matchMessage { white-space: pre-line; overflow-wrap: anywhere; }
     #listError { color: var(--error); font-size: 13px; }
-    #importMessages { padding-left: 18px; }
+    #importMessages { padding-left: 0; list-style: none; }
+    #importMessages > li + li { margin-top: 8px; }
+    #importMessages ul { padding-left: 18px; margin: 4px 0 0; }
     #resetProgressButton { margin-top: 8px; }
     #backButton { margin-top: 10px; }
     #privacy { margin: 20px 12px 0; text-align: center; font-size: 12px; }
@@ -135,7 +137,7 @@
       <label for="imageInput">Screenshots</label>
       <input type="file" id="imageInput" accept="image/*" multiple aria-describedby="privacy">
       <p id="status" role="status" aria-live="polite"></p>
-      <ul id="importMessages"></ul>
+      <ul id="importMessages" aria-label="Images needing review"></ul>
       <div class="editor-toolbar">
         <label for="stopList">Packages</label>
         <div class="actions">

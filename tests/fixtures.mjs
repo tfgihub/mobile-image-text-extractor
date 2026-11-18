@@ -166,7 +166,7 @@ export const test = base.extend({
         await page.locator('#imageInput').setInputFiles(texts.map((_, index) => ({
           name: `screenshot-${index + 1}.png`, mimeType: 'image/png', buffer
         })));
-        await expect(page.locator('#status')).toContainText('Import finished:');
+        await expect(page.locator('#status')).toHaveText(/^(?:All \d+ images|1 image|\d+\/\d+ images) processed\./);
         await expect(page.locator('#imageInput')).toBeEnabled();
       },
       async drawBarcode(payload, format) {
