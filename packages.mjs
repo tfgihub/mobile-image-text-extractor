@@ -1,5 +1,5 @@
-import { readStopList } from './stops.mjs?v=summary9';
-import { packageKey, samePackage } from './identity.mjs?v=summary9';
+import { readStopList } from './stops.mjs?v=ocr10';
+import { packageKey, samePackage } from './identity.mjs?v=ocr10';
 
 export function getScanStops(text) {
   const parsed = readStopList(text);

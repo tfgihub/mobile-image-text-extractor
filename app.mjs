@@ -1,8 +1,9 @@
-import { readStopList, updateStopList } from './stops.mjs?v=summary9';
-import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice, isRunComplete, movedConfirmedPackage } from './packages.mjs?v=summary9';
-import { createLiveCamera } from './live-camera.mjs?v=summary9';
-import { packageKey } from './identity.mjs?v=summary9';
-import { runStorageKey, serializeRun, parseSavedRun } from './saved-run.mjs?v=summary9';
+import { readStopList, updateStopList } from './stops.mjs?v=ocr10';
+import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice, isRunComplete, movedConfirmedPackage } from './packages.mjs?v=ocr10';
+import { createLiveCamera } from './live-camera.mjs?v=ocr10';
+import { packageKey } from './identity.mjs?v=ocr10';
+import { runStorageKey, serializeRun, parseSavedRun } from './saved-run.mjs?v=ocr10';
+import { screenshotText } from './ocr.mjs?v=ocr10';
 
 const byId = id => document.getElementById(id);
 const stopList = byId('stopList');
@@ -348,10 +349,11 @@ imageInput.addEventListener('change', async () => {
         if (storageConflict) {
           break;
         }
-        const updated = updateStopList(stopList.value, result.data.text);
+        const text = screenshotText(result.data);
+        const updated = updateStopList(stopList.value, text);
         stopList.value = updated.text;
         succeeded++;
-        const issues = result.data.text.trim() ? updated.warnings : ['No stops or packages detected. Try a clearer image.'];
+        const issues = text.trim() ? updated.warnings : ['No stops or packages detected. Try a clearer image.'];
         if (issues.length) {
           reviewImages++;
           importMessage(file.name, issues);

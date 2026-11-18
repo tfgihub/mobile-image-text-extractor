@@ -175,3 +175,21 @@ test('packages without a detected stop are identified by their readable IDs', ()
   assert.deepEqual(parsed.warnings, ['Stop not detected for packages AB12, spOrphan2.']);
   assert.deepEqual(parsed.stops, []);
 });
+
+test('a labelled all-letter code before an isolated reference belongs to its package row, never the next name', () => {
+  for (const code of ['RWKP', 'rwkp']) {
+    const parsed = parseStops(`Alex Sample #3001\nPackage ID\n${code}\n#3002\nPackage ID\nCD34`);
+    assert.deepEqual(parsed, {
+      stops: [
+        { address: 'Alex Sample #3001', packages: ['RWKP'] },
+        { address: 'Recipient #3002', packages: ['CD34'] }
+      ], warnings: []
+    });
+  }
+});
+
+test('partial and misread package labels recover codes without changing their characters', () => {
+  const parsed = parseStops('Alex Sample #3001\nPackage\n)\nQVZX\nDackage ID\nO1C5\nPackan ID\n01C5');
+  assert.deepEqual(parsed.stops[0].packages, ['QVZX', 'O1C5', '01C5']);
+  assert.deepEqual(parsed.warnings, []);
+});

@@ -225,3 +225,75 @@ for (const theme of ['light', 'dark']) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 }
+
+test('real OCR recovers obscured all-letter labels and isolated references across overlapping images without losing scans', async ({ app, page }) => {
+  await page.evaluate(() => { __appTest.realOCR = true; });
+  const generated = await page.evaluate(() => [false, true].map(overlap => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1200;
+    canvas.height = 1000;
+    const context = canvas.getContext('2d');
+    context.fillStyle = 'white';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    function text(value, x, y, size = 32) {
+      context.fillStyle = 'black';
+      context.font = `${size}px Arial`;
+      context.fillText(value, x, y);
+    }
+    if (!overlap) text('Alex Sample', 50, 90);
+    text('#3001', 1000, 90);
+    text('Package ID', 180, 180);
+    text('72LM', 180, 230, 40);
+    text(overlap ? 'Package' : 'p', 180, 310);
+    if (overlap) text(')', 335, 310);
+    text('QVZX', 180, 360, 40);
+    text('Package ID', 180, 440);
+    text('RWKP', 180, 490, 40);
+    if (!overlap) text('Jamie Example', 50, 610);
+    text('#3002', 1000, 610);
+    text(overlap ? 'Dackage ID' : 'Package ID', 180, 690);
+    text('CD34', 180, 740, 40);
+    return canvas.toDataURL('image/png').split(',')[1];
+  }));
+  const files = generated.map((image, index) => ({
+    name: `synthetic-layout-${index + 1}.png`, mimeType: 'image/png', buffer: Buffer.from(image, 'base64')
+  }));
+  files.push({
+    name: 'synthetic-additional-stops.png', mimeType: 'image/png',
+    buffer: await app.image([
+      'Taylor Sample #4001', 'Package ID', 'P79Q',
+      'Casey Example #4002', 'Package ID', 'HPQK'
+    ])
+  });
+  await page.locator('#imageInput').setInputFiles(files);
+  await expect(page.locator('#status')).toHaveText('All 3 images processed. No detection issues found.', { timeout: 30000 });
+  await expect(page.locator('#imageInput')).toBeEnabled();
+  await expect(page.locator('#importMessages')).toBeHidden();
+  const before = await page.locator('#stopList').inputValue();
+  expect(readStopList(before).stops.map(stop => stop.packages)).toEqual([
+    ['72LM', 'QVZX', 'RWKP'], ['CD34'], ['P79Q'], ['HPQK']
+  ]);
+  await page.locator('#nextButton').click();
+  await app.start();
+  await app.scan('QVZX');
+  await expect(page.locator('#matchStopNumber')).toHaveText('1');
+  await app.acknowledge();
+  await app.stop();
+  await page.locator('#backButton').click();
+  await page.locator('#imageInput').setInputFiles(files.slice(0, 1));
+  await expect(page.locator('#status')).toHaveText('1 image processed. No detection issues found.', { timeout: 30000 });
+  await expect(page.locator('#imageInput')).toBeEnabled();
+  await expect(page.locator('#stopList')).toHaveValue(before);
+  await page.locator('#nextButton').click();
+  await expect(app.cards.first()).toContainText('1/3 bags scanned');
+  await app.start();
+  await app.scan('QVZX');
+  await expect(page.locator('#matchNewBadge')).toBeHidden();
+  await expect(page.locator('#matchCount')).toHaveText('1 bag of 3 bags');
+  await app.acknowledge();
+  await app.scan('RWKP');
+  await expect(page.locator('#matchStopNumber')).toHaveText('1');
+  await expect(page.locator('#matchCount')).toHaveText('2 bags of 3 bags');
+  await app.acknowledge();
+  await app.stop();
+});

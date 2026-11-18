@@ -31,7 +31,13 @@ are not added a second time. Clipped package rows and IDs before a stop heading
 produce import notes rather than being silently assigned.
 Unlabelled alphabetic four-letter text is not guessed as a package: known screen
 words such as NEXT are ignored and other uncertain rows produce a review note.
-All-letter IDs following an explicit `Package ID` label remain supported.
+All-letter IDs following a clear or spatially verified partial package label
+are supported. OCR text positions keep recipient names and references on the
+same visual row, so a preceding package code is not mistaken for a name.
+Damaged labels are recovered only when the code and label fragment align with
+nearby full package labels. Unlabelled words alone are still not guessed as IDs.
+Obscured or clipped rows without a readable ID remain flagged; another screenshot
+or manual correction is needed to supply information that is not visible.
 
 Import feedback shows only a short completion summary. Clean images do not
 produce a log. Images needing review are listed once by filename, with the

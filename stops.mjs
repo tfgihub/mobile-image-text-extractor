@@ -1,4 +1,5 @@
-import { samePackage } from './identity.mjs?v=summary9';
+import { samePackage } from './identity.mjs?v=ocr10';
+import { packageLabelPattern, screenWordPattern } from './ocr.mjs?v=ocr10';
 
 const streetType = '(?:STREET|ST|AVENUE|AVE|ROAD|RD|PLACE|PL|DRIVE|DR|COURT|CT|WAY|LANE|LN|BOULEVARD|BLVD|CIRCLE|CIR|TERRACE|TER|PARKWAY|PKWY|HIGHWAY|HWY|TRAIL|TRL|LOOP)';
 const addressPattern = new RegExp(
@@ -75,22 +76,25 @@ export function parseStops(text) {
     }
 
     if (/^#\s*\d{3,}\s*$/.test(lines[index + 1] || '') &&
+        !(awaitingPackage && /^[A-Za-z0-9]{4}$/.test(line)) &&
         /^[A-Za-z][A-Za-z .'-]+$/.test(line) &&
         !/\b(?:ready|cart|package|scan|verify)\b/i.test(line)) {
       pendingName = line;
       continue;
     }
 
-    const packageRow = line.match(/\bpackage\s*[iIl1][dD]\b(.*)$/i);
-    if (packageRow) {
+    if (awaitingPackage && /^[^A-Za-z0-9]+$/.test(line)) continue;
+    if (awaitingPackage === 'partial' && screenWordPattern.test(line)) continue;
+    const packageRow = line.match(packageLabelPattern);
+    if (packageRow || /^package$/i.test(line)) {
       if (awaitingPackage) missingPackage();
       packageRows = true;
-      const id = packageRow[1].trim().match(/^[:|=-]*\s*([A-Za-z0-9]{4})\s*$/);
+      const id = (packageRow?.[1] || '').trim().match(/^[:|=-]*\s*([A-Za-z0-9]{4})\s*$/);
       if (id) {
         addPackage(id[1].toUpperCase());
         awaitingPackage = false;
       } else {
-        awaitingPackage = 'short';
+        awaitingPackage = packageRow ? 'short' : 'partial';
       }
       continue;
     }
@@ -111,7 +115,7 @@ export function parseStops(text) {
     const shortId = line.match(/^[^A-Za-z0-9]*([A-Z0-9]{4})[^A-Za-z0-9]*$/);
     if (packageRows && shortId) {
       if (awaitingPackage || /\d/.test(shortId[1])) addPackage(shortId[1]);
-      else if (!/^(?:SCAN|BAGS|CART|STOP|NAME|TIME|FROM|SHIP|NEXT|DONE|EDIT|VIEW|BACK|HELP|INFO|NOTE|SAVE|EXIT)$/.test(shortId[1])) {
+      else if (!screenWordPattern.test(shortId[1])) {
         warnings.push(`Unlabelled text "${shortId[1]}" at ${current?.address || 'an unknown stop'}: check if this is a package ID.`);
       }
       awaitingPackage = false;
@@ -122,9 +126,9 @@ export function parseStops(text) {
       for (const id of prefixedIds) addPackage(id);
       awaitingPackage = false;
     } else if (awaitingPackage) {
-      if (awaitingPackage === 'short' && /^[A-Za-z0-9]{4}$/.test(line)) {
+      if ((awaitingPackage === 'short' || awaitingPackage === 'partial') && /^[A-Za-z0-9]{4}$/.test(line)) {
         addPackage(line.toUpperCase());
-      } else if (awaitingPackage !== 'short' && /^[A-Za-z0-9_-]{4,64}$/.test(line) && /[0-9_-]/.test(line)) {
+      } else if (awaitingPackage === true && /^[A-Za-z0-9_-]{4,64}$/.test(line) && /[0-9_-]/.test(line)) {
         addPackage(line);
       } else {
         missingPackage();
