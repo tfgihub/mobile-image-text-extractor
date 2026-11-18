@@ -1,4 +1,4 @@
-import { readStopList } from './stops.mjs?v=popup6';
+import { readStopList } from './stops.mjs?v=badge7';
 
 export function getScanStops(text) {
   const parsed = readStopList(text);

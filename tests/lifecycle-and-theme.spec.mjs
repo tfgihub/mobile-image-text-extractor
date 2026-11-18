@@ -1,5 +1,17 @@
 import { test, expect, routeList } from './fixtures.mjs';
 
+function contrastRatio(foreground, background) {
+  const luminance = channels => {
+    const [red, green, blue] = channels.map(channel => {
+      const value = channel / 255;
+      return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+    });
+    return red * .2126 + green * .7152 + blue * .0722;
+  };
+  const values = [luminance(foreground), luminance(background)];
+  return (Math.max(...values) + .05) / (Math.min(...values) + .05);
+}
+
 test('active camera locks editing/import/navigation and Stop releases tracks and restores controls', async ({ app, page }) => {
   await app.open();
   await expect(page.locator('#stopList')).toHaveJSProperty('readOnly', true);
@@ -144,11 +156,31 @@ for (const width of [320, 390]) {
       await app.open();
       await app.scan('AB12');
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      const badge = page.locator('#matchNewBadge');
+      await expect(badge).toBeVisible();
+      const badgeStyle = await badge.evaluate(node => {
+        const style = getComputedStyle(node);
+        return {
+          fontSize: parseFloat(style.fontSize),
+          foreground: style.color.match(/\d+/g).map(Number),
+          background: style.backgroundColor.match(/\d+/g).map(Number),
+          height: node.getBoundingClientRect().height
+        };
+      });
+      expect(badgeStyle.fontSize).toBeGreaterThanOrEqual(18);
+      expect(badgeStyle.height).toBeGreaterThanOrEqual(40);
+      expect(badgeStyle.foreground).toHaveLength(3);
+      expect(badgeStyle.background).toHaveLength(3);
+      expect(Math.max(...badgeStyle.background) - Math.min(...badgeStyle.background)).toBeGreaterThanOrEqual(30);
+      expect(contrastRatio(badgeStyle.foreground, badgeStyle.background)).toBeGreaterThanOrEqual(4.5);
       const box = await app.dialog.boundingBox();
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(width);
       expect(box.height).toBeLessThanOrEqual(780);
       expect(await app.dialog.evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth)).toBe(true);
+      await app.acknowledge(true);
+      await app.scan('AB12');
+      await expect(badge).toBeHidden();
       await app.acknowledge();
       await expect(app.cards.nth(1)).toHaveClass(/complete/);
       expect(await app.cards.nth(1).evaluate(card => getComputedStyle(card).backgroundColor))

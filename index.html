@@ -21,7 +21,7 @@
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.2/dist/iife/reader/index.js"></script>
-  <script type="module" src="./app.mjs?v=popup6"></script>
+  <script type="module" src="./app.mjs?v=badge7"></script>
   <style>
     :root {
       color-scheme: light;
@@ -29,6 +29,7 @@
       --muted: #626262; --border: #dedede; --soft: #ededed;
       --button: #171717; --on-button: #fff; --disabled: #e8e8e8;
       --success: #176b3a; --complete: #e7f7ec; --complete-border: #a3d8b3;
+      --new-background: #dbeafe; --new-text: #1e40af; --new-border: #93c5fd;
       --error: #a42f1b;
     }
     :root[data-theme="dark"] {
@@ -37,6 +38,7 @@
       --muted: #aaaeb5; --border: #303238; --soft: #22242a;
       --button: #f4f4f5; --on-button: #111214; --disabled: #292b30;
       --success: #8ee3ac; --complete: #123022; --complete-border: #2b6847;
+      --new-background: #172d4a; --new-text: #bfdbfe; --new-border: #315a87;
       --error: #ffb4a1;
     }
     * { box-sizing: border-box; }
@@ -94,7 +96,7 @@
     dialog { width: min(94vw, 460px); max-height: 94dvh; overflow: auto; color: var(--text); background: var(--surface); text-align: center; padding: 24px; border: 1px solid var(--border); border-radius: 24px; box-shadow: 0 24px 80px rgb(0 0 0 / 30%); }
     dialog::backdrop { background: rgb(0 0 0 / 65%); }
     dialog h2 { font-size: 16px; color: var(--muted); }
-    #matchNewBadge { display: table; margin: 0 auto 12px; padding: 4px 12px; border: 1px solid var(--border); border-radius: 999px; color: var(--text); background: var(--soft); font-size: 12px; font-weight: 700; letter-spacing: .12em; }
+    #matchNewBadge { display: table; margin: 0 auto 12px; padding: 8px 20px; border: 1px solid var(--new-border); border-radius: 999px; color: var(--new-text); background: var(--new-background); font-size: 18px; line-height: 1.25; font-weight: 800; letter-spacing: .1em; }
     #matchStopNumber { display: block; margin: 12px 0 8px; font-size: clamp(96px, 26vw, 144px); line-height: 1.1; font-weight: 800; letter-spacing: -4px; }
     #matchCode { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 28px; font-weight: 600; margin: 8px 0 16px; letter-spacing: 2px; overflow-wrap: anywhere; }
     #matchCount { font-size: 22px; font-weight: 600; margin: 0 0 24px; color: var(--muted); }

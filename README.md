@@ -65,8 +65,10 @@ never count twice.
 
 Matched popups show only the large stop number, package code and bag progress,
 plus **OK** and **Rescan**. The first popup for a stop number adds a separate
-**NEW** badge above the number; later popups omit the badge, without a
-"Seen before" label. Showing the popup marks the stop
+**NEW** badge above the number, with larger bold text on a pale-blue pill in
+day mode and a deep-blue pill in night mode. Both color pairs maintain at
+least 4.5:1 text contrast. Later popups omit the badge, without a "Seen before"
+label. Showing the popup marks the stop
 as appeared even when **Rescan** is selected. This history survives stopping
 and reopening the camera or changing steps. **Reset Found Packages**, **Clear**,
 an entirely cleared editor, or a page reload starts a new sorting run and

@@ -1,6 +1,6 @@
-import { readStopList, updateStopList } from './stops.mjs?v=popup6';
-import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice } from './packages.mjs?v=popup6';
-import { createLiveCamera } from './live-camera.mjs?v=popup6';
+import { readStopList, updateStopList } from './stops.mjs?v=badge7';
+import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice } from './packages.mjs?v=badge7';
+import { createLiveCamera } from './live-camera.mjs?v=badge7';
 
 const byId = id => document.getElementById(id);
 const stopList = byId('stopList');
