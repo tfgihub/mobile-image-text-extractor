@@ -62,6 +62,18 @@ edited screenshot list. Nothing counts until **OK - Resume**. **Rescan - Don't
 Count** dismisses the notice without changing progress, and confirmed codes
 never count twice.
 
+The first popup for a stop number shows **New-7** (for example); later popups
+show just **7**, without a "Seen before" label. Showing the popup marks the stop
+as appeared even when **Rescan** is selected. This history survives stopping
+and reopening the camera or changing steps. **Reset Found Packages**, **Clear**,
+an entirely cleared editor, or a page reload starts a new sorting run and
+resets the new-stop markers. Reset is available even if a popup was shown
+without confirming any packages.
+
+A one-package stop displays **Only package - 1 of 1**. The final pending
+package at a multi-package stop displays **Last package - x of y**, distinct
+from an only-package stop. OK is still required before either completes.
+
 **This is scanned progress, not the printed bag position.** Barcodes contain
 the package ID, not `n of m bags`. Printed label totals and positions are no
 longer read or validated. A listed one-package stop completes after its one

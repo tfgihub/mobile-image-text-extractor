@@ -1,4 +1,4 @@
-import { readStopList } from './stops.mjs?v=themes4';
+import { readStopList } from './stops.mjs?v=notices5';
 
 export function getScanStops(text) {
   const parsed = readStopList(text);
@@ -40,6 +40,16 @@ export function stopProgress(stop, readings) {
   const count = stop.packages.filter(id => readings.has(id)).length;
   return {
     count, total, complete: total > 0 && count === total
+  };
+}
+
+export function getPackageNotice(stop, readings, shownStops) {
+  const { count, total } = stopProgress(stop, readings);
+  const position = count + 1;
+  const label = total === 1 ? 'Only package -' : position === total ? 'Last package -' : 'Bag';
+  return {
+    isNew: !shownStops.has(stop.number),
+    countLabel: `${label} ${position} of ${total}`
   };
 }
 

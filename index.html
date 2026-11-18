@@ -21,7 +21,7 @@
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.2/dist/iife/reader/index.js"></script>
-  <script type="module" src="./app.mjs?v=themes4"></script>
+  <script type="module" src="./app.mjs?v=notices5"></script>
   <style>
     :root {
       color-scheme: light;
@@ -94,6 +94,7 @@
     dialog::backdrop { background: rgb(0 0 0 / 65%); }
     dialog h2 { font-size: 16px; color: var(--muted); }
     #matchStopNumber { display: block; font-size: clamp(72px, 22vw, 130px); line-height: 1.1; font-weight: 800; letter-spacing: -5px; }
+    #matchStopPrefix { font-size: clamp(28px, 9vw, 44px); letter-spacing: -1px; }
     #matchCode { font-size: 28px; font-weight: 700; margin: 10px 0; letter-spacing: 2px; }
     #matchPackageId, #matchAddress { overflow-wrap: anywhere; font-size: 14px; }
     #matchCount { font-size: 24px; font-weight: 700; margin: 16px 0; }
@@ -151,9 +152,9 @@
     </section>
     <p class="note" id="privacy">Processed on your device. Copy your list before refreshing.</p>
   </main>
-  <dialog id="matchDialog" aria-labelledby="matchTitle" aria-describedby="matchCode matchPackageId matchAddress matchExpectedCount matchCount matchMessage">
+  <dialog id="matchDialog" aria-labelledby="matchTitle" aria-describedby="matchStopNumber matchCode matchPackageId matchAddress matchExpectedCount matchCount matchMessage">
     <h2 id="matchTitle" tabindex="-1">Package found at stop</h2>
-    <span id="matchStopNumber"></span>
+    <span id="matchStopNumber"><span id="matchStopPrefix"></span><span id="matchStopValue"></span></span>
     <p id="matchCode"></p>
     <p id="matchPackageId"></p>
     <p id="matchAddress"></p>

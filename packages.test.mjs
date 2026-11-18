@@ -1,8 +1,34 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getScanStops, matchBarcode, stopProgress, pruneReadings } from './packages.mjs';
+import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice } from './packages.mjs';
 
 const text = '7. Example #1234\n - J4K8\n - L9M2\n - N5R6\n\n12. Other #5678\n - X7Y8';
+
+test('new-stop notices depend on prior appearances, not confirmations', () => {
+  const stop = getScanStops(text).stops[0];
+  const readings = new Set();
+  const shown = new Set();
+  assert.deepEqual(getPackageNotice(stop, readings, shown), { isNew: true, countLabel: 'Bag 1 of 3' });
+  assert.equal(shown.size, 0);
+  shown.add(stop.number);
+  assert.deepEqual(getPackageNotice(stop, readings, shown), { isNew: false, countLabel: 'Bag 1 of 3' });
+  assert.equal(readings.size, 0);
+  shown.clear();
+  assert.equal(getPackageNotice(stop, readings, shown).isNew, true);
+});
+
+test('notices distinguish only packages from last packages and keep progress per stop', () => {
+  const [multiple, single] = getScanStops(text).stops;
+  const shown = new Set([multiple.number]);
+  const readings = new Set(['J4K8']);
+  assert.deepEqual(getPackageNotice(multiple, readings, shown), { isNew: false, countLabel: 'Bag 2 of 3' });
+  readings.add('L9M2');
+  assert.deepEqual(getPackageNotice(multiple, readings, shown), { isNew: false, countLabel: 'Last package - 3 of 3' });
+  assert.deepEqual(getPackageNotice(single, readings, shown), { isNew: true, countLabel: 'Only package - 1 of 1' });
+  assert.equal(stopProgress(single, readings).complete, false);
+  readings.add('X7Y8');
+  assert.equal(stopProgress(single, readings).complete, true);
+});
 
 test('validates explicit stop numbers separately from recipient reference numbers', () => {
   const parsed = getScanStops(text);

@@ -1,6 +1,6 @@
-import { readStopList, updateStopList } from './stops.mjs?v=themes4';
-import { getScanStops, matchBarcode, stopProgress, pruneReadings } from './packages.mjs?v=themes4';
-import { createLiveCamera } from './live-camera.mjs?v=themes4';
+import { readStopList, updateStopList } from './stops.mjs?v=notices5';
+import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice } from './packages.mjs?v=notices5';
+import { createLiveCamera } from './live-camera.mjs?v=notices5';
 
 const byId = id => document.getElementById(id);
 const stopList = byId('stopList');
@@ -11,6 +11,7 @@ const dialog = byId('matchDialog');
 const themeButton = byId('themeButton');
 const readings = new Set();
 const alerted = new Set();
+const shownStops = new Set();
 let stops = [];
 let valid = false;
 let processing = false;
@@ -46,7 +47,7 @@ function updateButtons() {
   byId('step1Button').disabled = byId('backButton').disabled = busy;
   byId('cameraButton').disabled = processing || (!cameraActive && !valid);
   byId('cameraButton').textContent = cameraActive ? 'Stop Camera' : 'Open Live Camera';
-  byId('resetProgressButton').disabled = busy || !readings.size;
+  byId('resetProgressButton').disabled = busy || (!readings.size && !shownStops.size);
 }
 
 function renderProgress() {
@@ -54,6 +55,7 @@ function renderProgress() {
   stops = parsed.stops;
   valid = !parsed.error;
   if (stops.length || !stopList.value.trim()) pruneReadings(stops, readings);
+  if (!stopList.value.trim()) shownStops.clear();
   byId('listError').textContent = stopList.value.trim() ? parsed.error || '' : '';
   byId('stopProgress').replaceChildren();
   for (const stop of stops) {
@@ -122,21 +124,23 @@ const camera = createLiveCamera({
     if (result.kind === 'check') alerted.add(key);
     pending = result;
     const matched = result.kind === 'candidate';
+    const notice = matched ? getPackageNotice(result.stop, readings, shownStops) : null;
     byId('matchTitle').textContent = matched ? 'Package found at stop' : 'Check this package';
     byId('matchStopNumber').hidden = !matched;
-    byId('matchStopNumber').textContent = matched ? String(result.stop.number) : '';
+    byId('matchStopPrefix').textContent = matched && notice.isNew ? 'New-' : '';
+    byId('matchStopValue').textContent = matched ? String(result.stop.number) : '';
     byId('matchCode').textContent = result.code;
     byId('matchPackageId').textContent = matched ? `Listed ID: ${result.packageId}` : '';
     byId('matchAddress').textContent = matched ? result.stop.address : 'Not assigned to any stop.';
-    const progress = matched ? stopProgress(result.stop, readings) : null;
-    byId('matchExpectedCount').textContent = matched ? `Total in current list: ${progress.total} bag(s)` : '';
-    byId('matchCount').textContent = matched ? `Bag ${progress.count + 1} of ${progress.total}` : '';
+    byId('matchExpectedCount').textContent = matched ? `Total in current list: ${result.stop.packages.length} bag(s)` : '';
+    byId('matchCount').textContent = matched ? notice.countLabel : '';
     byId('matchMessage').textContent = matched ? 'Tap OK to count this package and resume. This is scanned progress, not the printed bag position.' : result.message;
     byId('matchOkButton').textContent = 'OK - Resume';
     byId('matchOkButton').disabled = false;
     cameraStatus.textContent = 'Barcode decoded. Scanning paused; nothing is counted until confirmation.';
     const acknowledgement = new Promise(resolve => { releaseNotice = resolve; });
     dialog.showModal();
+    if (matched) shownStops.add(result.stop.number);
     byId('matchTitle').focus({ preventScroll: true });
     await acknowledgement;
   }
@@ -175,6 +179,7 @@ byId('resetProgressButton').addEventListener('click', () => {
   if (!confirm('Reset found-package progress? The list will be kept.')) return;
   readings.clear();
   alerted.clear();
+  shownStops.clear();
   renderProgress();
 });
 document.addEventListener('visibilitychange', () => {
@@ -259,6 +264,7 @@ byId('clearButton').addEventListener('click', () => {
   stopList.value = '';
   readings.clear();
   alerted.clear();
+  shownStops.clear();
   byId('importMessages').replaceChildren();
   renderProgress();
 });
