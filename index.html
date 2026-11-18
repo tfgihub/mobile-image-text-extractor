@@ -22,12 +22,18 @@
     #preview { max-width: 100%; max-height: 250px; margin: 10px auto; border-radius: 8px; }
     #preview:not([hidden]) { display: block; }
     .note { color: #526071; font-size: 14px; line-height: 1.5; }
+    .card { border: 1px solid #aeb8c4; border-radius: 8px; padding: 14px; margin: 14px 0; overflow-wrap: anywhere; }
+    .card h3 { margin: 0 0 10px; }
+    .card textarea { min-height: 110px; }
+    .secondary { background: #edf3fa; color: #174979; border: 1px solid #aeb8c4; }
+    #reviewWarnings { color: #8a3500; white-space: pre-line; }
+    #stopSummary { min-height: 180px; }
   </style>
 </head>
 <body>
   <main>
-    <h1>Extract Text from Picture</h1>
-    <p>Choose a picture or take a photo to extract English text.</p>
+    <h1>Stops &amp; Packages</h1>
+    <p>Scan a screenshot, review its addresses and package IDs, then add them to your stop list. Repeat for more screenshots.</p>
     <label for="imageInput">Photo</label>
     <input type="file" id="imageInput" accept="image/*" aria-describedby="privacy">
     <img id="preview" alt="Selected image" hidden>
@@ -35,22 +41,158 @@
     <label for="output">Extracted text</label>
     <textarea id="output" placeholder="Extracted text will appear here..." spellcheck="false"></textarea>
     <button id="copyButton" type="button" disabled>Copy Text</button>
+    <button id="reviewButton" type="button" class="secondary" disabled>Review Stops from Text</button>
+    <section aria-labelledby="reviewHeading">
+      <h2 id="reviewHeading">Review before adding</h2>
+      <p class="note">You can also paste text above. Check each address and package ID against the image. Put one package ID on each line. Detection is a best guess, not a package-count guarantee.</p>
+      <p id="reviewWarnings" role="status"></p>
+      <div id="draftStops"></div>
+      <button id="manualButton" type="button" class="secondary">Add a Stop Manually</button>
+      <button id="addStopsButton" type="button" disabled>Add Reviewed Stops to List</button>
+    </section>
+    <section aria-labelledby="listHeading">
+      <h2 id="listHeading">Your stop list</h2>
+      <p id="listCount" role="status">0 stops / 0 packages</p>
+      <p class="note">Scan more screenshots to extend this list. Repeated addresses are merged and identical IDs at the same stop are counted once. The list stays in this tab only; copy it before closing or refreshing.</p>
+      <div id="savedStops"></div>
+      <label for="stopSummary">List to copy</label>
+      <textarea id="stopSummary" readonly placeholder="Your reviewed stops and packages will appear here."></textarea>
+      <button id="copyListButton" type="button" disabled>Copy Stop List</button>
+      <button id="clearListButton" type="button" class="secondary" disabled>Clear Stop List</button>
+    </section>
     <p class="note" id="privacy">Photos are processed in your browser and are not uploaded.
       The OCR engine and English language data download on first use, so an internet connection is required.
       For best results, use a clear, well-lit photo of printed text. Check the result for mistakes.</p>
   </main>
-  <script>
+  <script type="module">
+    import { parseStops, mergeStops, formatStops } from './stops.mjs';
+
     const imageInput = document.getElementById('imageInput');
     const preview = document.getElementById('preview');
     const statusMessage = document.getElementById('status');
     const output = document.getElementById('output');
     const copyButton = document.getElementById('copyButton');
+    const reviewButton = document.getElementById('reviewButton');
+    const draftStops = document.getElementById('draftStops');
+    const reviewWarnings = document.getElementById('reviewWarnings');
+    const addStopsButton = document.getElementById('addStopsButton');
+    const manualButton = document.getElementById('manualButton');
+    const savedStops = document.getElementById('savedStops');
+    const listCount = document.getElementById('listCount');
+    const stopSummary = document.getElementById('stopSummary');
+    const copyListButton = document.getElementById('copyListButton');
+    const clearListButton = document.getElementById('clearListButton');
+    let stops = [];
     let previewUrl;
     let processing = false;
 
     function updateCopyButton() {
       copyButton.disabled = processing || !output.value.trim();
+      reviewButton.disabled = copyButton.disabled;
     }
+
+    function addDraft(stop = { address: '', packages: [] }) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      const addressLabel = document.createElement('label');
+      addressLabel.textContent = 'Stop address';
+      const address = document.createElement('input');
+      address.type = 'text';
+      address.value = stop.address;
+      address.autocomplete = 'off';
+      address.className = 'stop-address';
+      addressLabel.append(address);
+      const packageLabel = document.createElement('label');
+      packageLabel.textContent = 'Package IDs (one per line)';
+      const packages = document.createElement('textarea');
+      packages.value = stop.packages.join('\n');
+      packages.spellcheck = false;
+      packages.autocapitalize = 'off';
+      packages.autocomplete = 'off';
+      packages.className = 'package-ids';
+      packageLabel.append(packages);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'secondary';
+      remove.textContent = 'Remove Draft Stop';
+      remove.addEventListener('click', () => {
+        card.remove();
+        addStopsButton.disabled = !draftStops.children.length;
+      });
+      card.append(addressLabel, packageLabel, remove);
+      draftStops.append(card);
+      addStopsButton.disabled = false;
+    }
+
+    function reviewText() {
+      const parsed = parseStops(output.value);
+      draftStops.replaceChildren();
+      parsed.stops.forEach(addDraft);
+      reviewWarnings.textContent = parsed.warnings.join('\n');
+      addStopsButton.disabled = !parsed.stops.length;
+    }
+
+    function renderList() {
+      savedStops.replaceChildren();
+      stops.forEach((stop, index) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const heading = document.createElement('h3');
+        heading.textContent = `${index + 1}. ${stop.address}`;
+        const count = document.createElement('p');
+        count.textContent = `${stop.packages.length} package${stop.packages.length === 1 ? '' : 's'}`;
+        const list = document.createElement('ul');
+        for (const id of stop.packages) {
+          const item = document.createElement('li');
+          item.textContent = id;
+          list.append(item);
+        }
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'secondary';
+        remove.textContent = 'Remove Stop';
+        remove.addEventListener('click', () => {
+          if (!confirm('Remove this stop and its packages from the list?')) return;
+          stops.splice(index, 1);
+          renderList();
+        });
+        card.append(heading, count, list, remove);
+        savedStops.append(card);
+      });
+      const packages = stops.reduce((count, stop) => count + stop.packages.length, 0);
+      listCount.textContent = `${stops.length} stop${stops.length === 1 ? '' : 's'} / ${packages} package${packages === 1 ? '' : 's'}`;
+      stopSummary.value = formatStops(stops);
+      copyListButton.disabled = clearListButton.disabled = !stops.length;
+    }
+
+    reviewButton.addEventListener('click', reviewText);
+    manualButton.addEventListener('click', () => addDraft());
+    addStopsButton.addEventListener('click', () => {
+      const incoming = [];
+      for (const card of draftStops.children) {
+        const address = card.querySelector('.stop-address');
+        const packages = card.querySelector('.package-ids');
+        const ids = packages.value.split(/\r?\n/).map(id => id.trim()).filter(Boolean);
+        if (!address.value.trim() || !ids.length || ids.some(id => /\s/.test(id))) {
+          reviewWarnings.textContent = 'Every stop needs an address and at least one package ID. Use one ID per line, without spaces inside an ID.';
+          (!address.value.trim() ? address : packages).focus();
+          return;
+        }
+        incoming.push({ address: address.value.trim(), packages: ids });
+      }
+      stops = mergeStops(stops, incoming);
+      renderList();
+      draftStops.replaceChildren();
+      reviewWarnings.textContent = '';
+      addStopsButton.disabled = true;
+      statusMessage.textContent = 'Reviewed stops added. Scan another screenshot or copy your stop list.';
+    });
+    clearListButton.addEventListener('click', () => {
+      if (!confirm('Clear all stops and packages from this tab?')) return;
+      stops = [];
+      renderList();
+      statusMessage.textContent = 'Stop list cleared.';
+    });
 
     imageInput.addEventListener('change', async () => {
       const file = imageInput.files[0];
@@ -60,8 +202,16 @@
         imageInput.value = '';
         return;
       }
+      if (draftStops.children.length && !confirm('Replace the unadded draft stops with a new scan? Your stop list will be kept.')) {
+        imageInput.value = '';
+        return;
+      }
 
       processing = true;
+      manualButton.disabled = true;
+      draftStops.replaceChildren();
+      reviewWarnings.textContent = '';
+      addStopsButton.disabled = true;
       imageInput.disabled = true;
       output.readOnly = true;
       output.value = '';
@@ -86,8 +236,9 @@
         });
         const result = await worker.recognize(file);
         output.value = result.data.text;
+        reviewText();
         statusMessage.textContent = output.value.trim()
-          ? 'Done! Review or edit the text, then tap Copy Text.'
+          ? 'Scan complete. Check the detected stops and package IDs below, then add them to your list.'
           : 'No text found. Try a clearer photo of English text.';
       } catch (error) {
         console.error('Text extraction failed:', error);
@@ -102,6 +253,7 @@
           }
         }
         processing = false;
+        manualButton.disabled = false;
         imageInput.disabled = false;
         imageInput.value = '';
         output.readOnly = false;
@@ -109,22 +261,31 @@
       }
     });
 
-    output.addEventListener('input', updateCopyButton);
-    copyButton.addEventListener('click', async () => {
+    output.addEventListener('input', () => {
+      updateCopyButton();
+      if (draftStops.children.length) {
+        draftStops.replaceChildren();
+        addStopsButton.disabled = true;
+        reviewWarnings.textContent = 'Text changed. Tap Review Stops from Text to rebuild the draft.';
+      }
+    });
+    async function copyText(source) {
       try {
         if (!navigator.clipboard || !globalThis.isSecureContext) {
           throw new Error('Clipboard access requires HTTPS and a supported browser.');
         }
-        await navigator.clipboard.writeText(output.value);
+        await navigator.clipboard.writeText(source.value);
         statusMessage.textContent = 'Copied to clipboard!';
       } catch (error) {
         console.error('Clipboard copy failed:', error);
-        output.focus();
-        output.select();
-        output.setSelectionRange(0, output.value.length);
+        source.focus();
+        source.select();
+        source.setSelectionRange(0, source.value.length);
         statusMessage.textContent = 'Could not copy automatically. Touch and hold the selected text and choose Copy.';
       }
-    });
+    }
+    copyButton.addEventListener('click', () => copyText(output));
+    copyListButton.addEventListener('click', () => copyText(stopSummary));
 
     window.addEventListener('pagehide', () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
