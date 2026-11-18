@@ -1,4 +1,4 @@
-import { prepareBarcodeReader, decodeBarcodeFrame } from './barcode.mjs?v=barcode1';
+import { prepareBarcodeReader, decodeBarcodeFrame } from './barcode.mjs?v=bags2';
 
 export function createLiveCamera({ video, onCodes, onStatus, onActive, onStop, onTiming = () => {} }) {
   let session;
@@ -57,7 +57,7 @@ export function createLiveCamera({ video, onCodes, onStatus, onActive, onStop, o
             const readBags = () => {
               if (!bagTask) {
                 bagTask = (async () => {
-                  if (!globalThis.Tesseract) throw new Error('Bag-count OCR did not load. Enter the bag count manually.');
+                  if (!globalThis.Tesseract) throw new Error('Bag-count OCR did not load. Check your connection and rescan.');
                   if (!current.worker) {
                     current.worker = await Tesseract.createWorker('eng');
                     if (current.cancelled) return '';

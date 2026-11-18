@@ -8,7 +8,7 @@
   <title>Stops &amp; Packages - Prototype</title>
   <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.2/dist/iife/reader/index.js"></script>
-  <script type="module" src="./app.mjs?v=barcode1"></script>
+  <script type="module" src="./app.mjs?v=bags2"></script>
   <style>
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
@@ -40,8 +40,6 @@
     #matchCode { font-size: 28px; font-weight: 700; margin: 10px 0; }
     #matchPackageId, #matchAddress { overflow-wrap: anywhere; font-size: 14px; }
     #matchCount { font-size: 20px; font-weight: 700; }
-    #bagFields { display: flex; gap: 12px; text-align: left; }
-    #bagFields label { flex: 1; min-width: 0; margin-top: 0; }
   </style>
 </head>
 <body>
@@ -60,7 +58,7 @@
       <p id="status" role="status" aria-live="polite">Upload screenshots or type your list below.</p>
       <ul id="importMessages"></ul>
       <label for="stopList">Your editable list</label>
-      <p class="note" id="formatHelp">One stop/customer heading followed by package IDs, one per line. Leave a blank line between stops. Review OCR, especially 0/O and customer reference numbers. A # reference is not treated as a stop number.</p>
+      <p class="note" id="formatHelp">One stop/customer heading followed by package IDs, one per line. Leave a blank line between stops. Each unique package ID counts as one expected bag for that stop. Import all screenshots for a stop before scanning. Review OCR, especially 0/O and customer reference numbers. A # reference is not treated as a stop number.</p>
       <textarea id="stopList" placeholder="1. Customer #1234&#10;   - AB12&#10;   - CD34&#10;&#10;2. Next customer #5678&#10;   - EF56" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="formatHelp"></textarea>
       <p id="listError" role="status"></p>
       <div class="actions">
@@ -71,7 +69,7 @@
     </section>
     <section id="groupStep" aria-labelledby="groupHeading" hidden>
       <h2 id="groupHeading">2. Scan and group packages</h2>
-      <p class="note">Show one whole label. The camera decodes its Data Matrix or QR code, not printed package numbers. OCR is used only for bag counts after a match. Check the count, then confirm; Rescan never counts the package.</p>
+      <p class="note">Show one whole label. The camera decodes its Data Matrix or QR code and automatically reads "bag x of y." The label total must match the number of packages listed for that stop. The popup shows the stop number and bag count; tap OK to count a validated bag and resume. Unreadable or mismatched bags are not counted. Rescan never counts a package.</p>
       <button id="cameraButton" type="button">Open Live Camera</button>
       <video id="cameraPreview" autoplay muted playsinline hidden aria-label="Live package camera"></video>
       <p id="cameraStatus" role="status" aria-live="polite">Camera is off.</p>
@@ -83,19 +81,16 @@
     <p class="note" id="privacy">Images and camera frames stay in your browser. Internet is required to download the scanning engines.
       The list and progress are not saved. Copy your list before closing or refreshing. Leaving this page stops the camera.</p>
   </main>
-  <dialog id="matchDialog" aria-labelledby="matchTitle" aria-describedby="matchCode matchPackageId matchAddress matchMessage">
+  <dialog id="matchDialog" aria-labelledby="matchTitle" aria-describedby="matchCode matchPackageId matchAddress matchExpectedCount matchCount matchMessage">
     <h2 id="matchTitle" tabindex="-1">Package found at stop</h2>
     <span id="matchStopNumber"></span>
     <p id="matchCode"></p>
     <p id="matchPackageId"></p>
     <p id="matchAddress"></p>
-    <div id="bagFields">
-      <label>Bag number<input id="bagNumber" type="number" inputmode="numeric" min="1" step="1"></label>
-      <label>Total bags<input id="totalBags" type="number" inputmode="numeric" min="1" step="1"></label>
-    </div>
-    <p id="matchCount"></p>
+    <p id="matchExpectedCount" class="note"></p>
+    <p id="matchCount" aria-live="polite"></p>
     <p id="matchMessage" role="status"></p>
-    <button id="matchOkButton" type="button" disabled>Confirm &amp; Resume</button>
+    <button id="matchOkButton" type="button" disabled>OK - Resume</button>
     <button id="rescanButton" type="button" class="secondary">Rescan - Don't Count</button>
   </dialog>
 </body>

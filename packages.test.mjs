@@ -60,7 +60,7 @@ test('bags 1 and 3 of 3 remain incomplete until bag 2 is confirmed', () => {
   assert.equal(matchBarcode('trackingN5R6', stops, readings).kind, 'duplicate');
 });
 
-test('conflicting totals, repeated positions, invalid manual counts never count', () => {
+test('conflicting totals, repeated positions, invalid detected counts never count', () => {
   const { stops } = getScanStops(text);
   const readings = new Map([['J4K8', record('J4K8', 1)]]);
   const candidate = matchBarcode('trackingL9M2', stops, readings);
@@ -70,11 +70,30 @@ test('conflicting totals, repeated positions, invalid manual counts never count'
   assert.equal(readings.size, 1);
 });
 
+test('screenshot package rows set the total before scanning and reject a first-label mismatch', () => {
+  const { stops } = getScanStops(text);
+  const readings = new Map();
+  assert.equal(stopProgress(stops[0], readings).total, 3);
+  assert.equal(stopProgress(stops[1], readings).total, 1);
+  const candidate = matchBarcode('trackingX7Y8', stops, readings);
+  const mismatch = validateBagMatch(candidate, 1, 3, readings);
+  assert.equal(mismatch.kind, 'check');
+  assert.match(mismatch.message, /screenshot list has 1 package\(s\).*label says 3 bags/);
+  assert.equal(readings.size, 0);
+  assert.equal(stopProgress(stops[1], readings).total, 1);
+  const accepted = validateBagMatch(candidate, 1, 1, readings);
+  assert.equal(accepted.kind, 'match');
+  readings.set(accepted.packageId, accepted);
+  assert.equal(stopProgress(stops[1], readings).complete, true);
+});
+
 test('missing IDs, editing, and mixed groups prevent premature green completion', () => {
   const stop = getScanStops(text).stops[0];
   stop.packages.pop();
   const readings = new Map([['J4K8', record('J4K8', 1)], ['L9M2', record('L9M2', 3)]]);
-  assert.equal(stopProgress(stop, readings).complete, false);
+  assert.deepEqual(stopProgress(stop, readings), {
+    count: 2, total: 2, listedFound: 2, listedTotal: 2, conflict: true, complete: false
+  });
   readings.set('L9M2', record('L9M2', 2, 4));
   assert.equal(stopProgress(stop, readings).conflict, true);
   assert.equal(stopProgress({ packages: [] }, readings).complete, false);

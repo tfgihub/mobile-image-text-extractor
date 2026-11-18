@@ -25,6 +25,9 @@ one per line, and leave a blank line between stops. Check OCR carefully: names,
 reference numbers, and 0/O can be misread. The importer does not guess redacted
 or unreadable content. `#` references are not interpreted as route stop numbers.
 Screenshot checkmarks do not mark packages as found in this prototype.
+The number of unique package IDs under each stop is its expected bag total.
+Import all overlapping screenshots and review missing-ID warnings before
+scanning. Overall cart counters such as `20 OF 40` are not per-stop totals.
 
 Failed or unrecognized screenshots leave the existing list intact. Other files
 in the batch are still processed. Invalid editor formatting blocks further
@@ -46,17 +49,27 @@ and immediately displays the large stop number and decoded code. OCR then reads
 only the bag count from that same frozen frame. The barcode does not itself
 contain `n of m bags`.
 
-Check or enter **Bag number** and **Total bags**. Nothing counts until you tap
-**Confirm & Resume**. **Rescan - Don't Count** dismisses the notice without
-changing progress. Invalid, repeated-position, and conflicting-total entries
-are rejected. Already-confirmed packages never count twice.
+The popup keeps the large stop number and automatically displays **Bag x of y**,
+alongside the expected total from the screenshot list. There are no manual
+bag-count fields. The detected total must equal the number of unique package
+IDs listed for that stop, including on the very first scan. For example, a stop
+with three package rows accepts a `1 of 3 bags` label; a one-package stop does not.
+
+Nothing counts until the bag information validates and you tap **OK - Resume**.
+Unreadable counts, invalid counts, repeated positions, and mismatched totals
+show a warning and are never counted, even after OK. Improve the label framing
+and use **Rescan - Don't Count**, or stop the camera to correct an incomplete
+screenshot list. Rescan dismisses the notice without changing progress.
+Already-confirmed packages never count twice.
 
 Unknown codes, unsupported payloads, ambiguous matches, and multiple labels
 produce **Check this package** notices without modifying the list or progress.
 The same unknown reading is shown once per camera session to avoid a popup loop.
 
-Progress cards turn green only after all numbered bag positions and all listed
-IDs at that stop are confirmed. Bags 1 and 3 of 3 mean 2/3 found, not complete.
+Progress totals always come from the screenshot list, never from camera OCR.
+Cards turn green only after all expected numbered bag positions and all listed
+IDs at that stop are confirmed with matching totals. Bags 1 and 3 of 3 mean 2/3
+found, not complete.
 Currently one consistent bag group per stop is supported. Explicit editor
 numbers such as `7.` are preserved for camera notices; otherwise list order is
 used. Screenshot imports number stops in their first-seen order.
@@ -78,7 +91,7 @@ for development) and browser permission.
 
 Barcode decoding is usually faster and more reliable than reading printed IDs,
 but depends on focus, light, code size, and device performance. OCR bag counts
-and screenshot imports still need human review.
+may require rescanning. Screenshot imports still need human review.
 
 ## Development and publishing
 
