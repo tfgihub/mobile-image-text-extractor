@@ -22,6 +22,23 @@ worker. The importer supports:
   The code may be on the next line, including all-letter four-character codes.
 - Street-address stops with `Unknown` package rows and longer package IDs.
 
+For a new, empty list, upload the route screenshots together in any order.
+Stops are read top-to-bottom below the photo/list header. When the familiar
+Ready/Cart or Scan Bags header is detected, text in the photo above it is ignored;
+older screenshots without that header still work. Overlapping stops reconstruct
+the route order automatically, without sorting filenames or customer references.
+If overlap cannot determine the full order, **Confirm stop order** lets you move
+groups earlier/later. A group's observed internal order stays fixed. Branching
+overlaps show individual stops and prevent moves against the known sequence.
+Contradictory screenshots show an explicit warning; your chosen order overrides
+that conflict. No new run is saved until ordering finishes. **Cancel import**
+discards the new batch, and reloading before confirmation leaves no partial run.
+
+Imports into an existing list preserve every assigned stop number and append
+new stops after the highest existing number, including when images are shuffled.
+They do not reconstruct or renumber the existing route. To reconstruct a whole
+route from screenshots, start with an empty list and import the full batch.
+
 Small screenshots are enlarged for OCR. Repeated customer references merge even
 when names are redacted; street stops merge ignoring case, spacing, commas, and
 periods. Identical IDs are deduplicated ignoring letter case. Four-character codes are normalized
@@ -241,7 +258,7 @@ No test hooks are shipped in the application modules.
 
 | Workflow | Regression coverage |
 | --- | --- |
-| Screenshot import | Real OCR, both screenshot formats, multiple/overlapping images, preserved route numbers, deduplicated case/short/full IDs, progress migration, edited-list merging, conflicts, unlabelled screen words, orphan/clipped rows, empty/unrecognized results |
+| Screenshot import | Real OCR, both screenshot formats, photo/header filtering, shuffled overlaps, ambiguous/conflicting order dialogs, cancel/reload/storage safety, preserved route numbers, deduplicated case/short/full IDs, progress migration, edited-list merging, conflicts, unlabelled screen words, orphan/clipped rows, empty/unrecognized results |
 | Import failures | Bad files, continuing after a failed image, worker startup/cleanup, disabled busy controls, invalid-editor preservation |
 | Barcode matching | Real QR/Data Matrix decoding, full/suffix and case-insensitive matches, exact-match priority, unknown/unsupported/ambiguous/multiple codes, no Q/0 guessing, duplicate suppression |
 | Notices and completion | Minimal accessible popup, separate NEW badge, per-stop history, Rescan/OK, held-label suppression and rearming, repeat notices without double counting, final-package preview versus committed completion |

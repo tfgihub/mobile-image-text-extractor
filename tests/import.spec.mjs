@@ -266,6 +266,8 @@ test('real OCR recovers obscured all-letter labels and isolated references acros
     ])
   });
   await page.locator('#imageInput').setInputFiles(files);
+  await expect(page.locator('#stopOrderDialog')).toBeVisible({ timeout: 30000 });
+  await page.locator('#confirmStopOrderButton').click();
   await expect(page.locator('#status')).toHaveText('All 3 images processed. No detection issues found.', { timeout: 30000 });
   await expect(page.locator('#imageInput')).toBeEnabled();
   await expect(page.locator('#importMessages')).toBeHidden();
@@ -299,11 +301,13 @@ test('real OCR recovers obscured all-letter labels and isolated references acros
 });
 
 test('a listed package never hides unreadable rows, and warnings use combined-list counts even after editing', async ({ app, page }) => {
-  await app.upload([
+  await app.beginUpload([
     'Taylor Sample #4001\nPackage ID\nP79Q\nCasey Example #4002\nPackage ID\nHPQK',
     'Alex Sample #3001\nPackage ID\n72LM\nPackage ID\nQVZX\nPackage ID\nRWKP\nRecipient #3002\nPackage ID\nCD34\nPackage ID',
     'Unclear Name #3002\nPackage ID\nPhoto required'
   ]);
+  await expect(page.locator('#stopOrderDialog')).toBeVisible();
+  await page.locator('#confirmStopOrderButton').click();
   await expect(page.locator('#status')).toHaveText('All 3 images processed. 2 images need review below.');
   await expect(page.locator('#importMessages > li > strong')).toHaveText(['screenshot-2.png', 'screenshot-3.png']);
   await expect(page.locator('#importMessages > li > ul > li')).toHaveText([

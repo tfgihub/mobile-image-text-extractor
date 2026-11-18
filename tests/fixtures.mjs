@@ -160,12 +160,15 @@ export const test = base.extend({
         }, lines);
         return Buffer.from(data, 'base64');
       },
-      async upload(texts) {
+      async beginUpload(texts) {
         await page.evaluate(texts => { __appTest.ocrQueue = texts; }, texts);
         const buffer = await app.image();
         await page.locator('#imageInput').setInputFiles(texts.map((_, index) => ({
           name: `screenshot-${index + 1}.png`, mimeType: 'image/png', buffer
         })));
+      },
+      async upload(texts) {
+        await app.beginUpload(texts);
         await expect(page.locator('#status')).toHaveText(/^(?:All \d+ images|1 image|\d+\/\d+ images) processed\./);
         await expect(page.locator('#imageInput')).toBeEnabled();
       },

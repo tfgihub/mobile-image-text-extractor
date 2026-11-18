@@ -1,6 +1,16 @@
 export const packageLabelPattern = /\b[pd]ack[a-z]{2,3}\s*[iIl1][dD]\b(.*)$/i;
 export const screenWordPattern = /^(?:SCAN|BAGS|CART|STOP|NAME|TIME|FROM|SHIP|NEXT|DONE|EDIT|VIEW|BACK|HELP|INFO|NOTE|SAVE|EXIT)$/i;
 
+export function stopListStart(lines) {
+  let start = 0;
+  for (const [index, text] of lines.entries()) {
+    if ((!/#\s*\d+/.test(text) && /\bready\b.*\bcart[_ -]?\d+\b/i.test(text)) ||
+        /\bscan\s+\d+\s+bags?\s+to\s+verify\b/i.test(text) ||
+        (start > 0 && index === start && /^\s*\d+\s+of\s+\d+\s*$/i.test(text))) start = index + 1;
+  }
+  return start;
+}
+
 export function screenshotText(data) {
   if (typeof data.text !== 'string') throw new Error('Screenshot OCR did not return text.');
   if (data.lines == null) return data.text;
@@ -31,6 +41,7 @@ export function screenshotText(data) {
   for (const row of rows) {
     row.text = row.parts.sort((a, b) => a.bbox.x0 - b.bbox.x0).map(part => part.text.trim()).join(' ');
   }
+  rows.splice(0, stopListStart(rows.map(row => row.text)));
 
   const labels = rows.filter(row => packageLabelPattern.test(row.text));
   for (let index = 1; index < rows.length; index++) {

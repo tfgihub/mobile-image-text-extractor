@@ -1,9 +1,10 @@
-import { readStopList, updateStopList, formatImportWarnings } from './stops.mjs?v=rows11';
-import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice, isRunComplete, movedConfirmedPackage } from './packages.mjs?v=rows11';
-import { createLiveCamera } from './live-camera.mjs?v=rows11';
-import { packageKey } from './identity.mjs?v=rows11';
-import { runStorageKey, serializeRun, parseSavedRun } from './saved-run.mjs?v=rows11';
-import { screenshotText } from './ocr.mjs?v=rows11';
+import { readStopList, updateStopList, formatImportWarnings, formatStops, addressKey } from './stops.mjs?v=order12';
+import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice, isRunComplete, movedConfirmedPackage } from './packages.mjs?v=order12';
+import { createLiveCamera } from './live-camera.mjs?v=order12';
+import { packageKey } from './identity.mjs?v=order12';
+import { runStorageKey, serializeRun, parseSavedRun } from './saved-run.mjs?v=order12';
+import { screenshotText } from './ocr.mjs?v=order12';
+import { planStopOrder, validStopOrder, reorderedStops } from './ordering.mjs?v=order12';
 
 const byId = id => document.getElementById(id);
 const stopList = byId('stopList');
@@ -12,6 +13,7 @@ const status = byId('status');
 const cameraStatus = byId('cameraStatus');
 const dialog = byId('matchDialog');
 const restoreDialog = byId('restoreDialog');
+const stopOrderDialog = byId('stopOrderDialog');
 const themeButton = byId('themeButton');
 const readings = new Set();
 const alerted = new Set();
@@ -33,6 +35,9 @@ let savedRun = null;
 let lastStoredValue = null;
 let storageConflict = false;
 let persistenceDisabled = false;
+let awaitingStopOrder = false;
+let pendingOrder = null;
+let resolveOrder;
 
 function storageStatus(message, failed = false) {
   const node = byId('saveStatus');
@@ -43,6 +48,7 @@ function storageStatus(message, failed = false) {
 function savedRecordsChanged() {
   if (storageConflict) return;
   storageConflict = true;
+  finishStopOrder(null);
   camera.stop('Camera stopped because saved records changed in another tab.');
   storageStatus('Another tab changed the saved records. Copy any unsaved edits, then reload this tab before continuing.', true);
   if (restoreDialog.open) {
@@ -53,7 +59,7 @@ function savedRecordsChanged() {
 }
 
 function persistRun() {
-  if (awaitingRestore || persistenceDisabled || storageConflict) return;
+  if (awaitingRestore || awaitingStopOrder || persistenceDisabled || storageConflict) return;
   try {
     if (localStorage.getItem(runStorageKey) !== lastStoredValue) {
       savedRecordsChanged();
@@ -316,6 +322,88 @@ function renderImportMessages() {
   }
 }
 
+function finishStopOrder(order) {
+  if (!resolveOrder) return;
+  const resolve = resolveOrder;
+  resolveOrder = null;
+  pendingOrder = null;
+  stopOrderDialog.close();
+  resolve(order);
+}
+
+function movedOrderGroups(index, direction) {
+  const groups = pendingOrder.groups.map(group => [...group]);
+  const target = index + direction;
+  if (target < 0 || target >= groups.length) return null;
+  [groups[index], groups[target]] = [groups[target], groups[index]];
+  return pendingOrder.plan.conflict || validStopOrder(groups.flat(), pendingOrder.plan) ? groups : null;
+}
+
+function renderStopOrder() {
+  byId('stopOrderGroups').replaceChildren();
+  for (const [index, group] of pendingOrder.groups.entries()) {
+    const item = document.createElement('li');
+    item.className = 'order-group';
+    item.tabIndex = -1;
+    const preview = document.createElement('ul');
+    for (const key of group) {
+      const stop = document.createElement('li');
+      stop.textContent = pendingOrder.stops.get(key).address;
+      preview.append(stop);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'order-actions';
+    for (const [label, direction] of [['Move earlier', -1], ['Move later', 1]]) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary';
+      button.textContent = label;
+      button.disabled = !movedOrderGroups(index, direction);
+      button.addEventListener('click', () => {
+        const groups = movedOrderGroups(index, direction);
+        if (!groups) return;
+        pendingOrder.groups = groups;
+        renderStopOrder();
+        byId('stopOrderGroups').children[index + direction].focus({ preventScroll: true });
+      });
+      actions.append(button);
+    }
+    item.append(preview, actions);
+    byId('stopOrderGroups').append(item);
+  }
+}
+
+async function chooseStopOrder(listedStops, sequences) {
+  const plan = planStopOrder(listedStops, sequences);
+  if (!plan.ambiguous && !plan.conflict) return plan.order;
+  pendingOrder = {
+    plan, groups: plan.groups.map(group => [...group]),
+    stops: new Map(listedStops.map(stop => [addressKey(stop.address), stop]))
+  };
+  byId('stopOrderMessage').textContent = plan.conflict
+    ? 'Images disagree about stop order. Arrange the correct order below. Your choice will override the conflicting image order.'
+    : 'Image overlap does not determine the full order. Put these groups in route order. Stops shown together stay in their observed order.';
+  byId('stopOrderError').textContent = '';
+  renderStopOrder();
+  const choice = new Promise(resolve => { resolveOrder = resolve; });
+  status.textContent = 'Images processed. Confirm stop order to finish.';
+  storageStatus('Stop order is not saved yet. Keep this page open until you confirm.');
+  stopOrderDialog.showModal();
+  return choice;
+}
+
+stopOrderDialog.addEventListener('cancel', event => event.preventDefault());
+byId('confirmStopOrderButton').addEventListener('click', () => {
+  if (!pendingOrder || storageConflict) return;
+  const order = pendingOrder.groups.flat();
+  if (!pendingOrder.plan.conflict && !validStopOrder(order, pendingOrder.plan)) {
+    byId('stopOrderError').textContent = 'This order conflicts with the image sequence. Review the groups before continuing.';
+    return;
+  }
+  finishStopOrder(order);
+});
+byId('cancelStopOrderButton').addEventListener('click', () => finishStopOrder(null));
+
 imageInput.addEventListener('change', async () => {
   const files = [...imageInput.files];
   if (!files.length || processing || cameraActive || awaitingRestore || storageConflict) return;
@@ -326,6 +414,9 @@ imageInput.addEventListener('change', async () => {
     imageInput.value = '';
     return;
   }
+  const startingText = stopList.value;
+  awaitingStopOrder = !startingText.trim();
+  const sequences = [];
   processing = true;
   updateButtons();
   let worker;
@@ -334,6 +425,8 @@ imageInput.addEventListener('change', async () => {
   let reviewImages = 0;
   let startupFailed = false;
   let cleanupFailed = false;
+  let orderCancelled = false;
+  let orderFailed = false;
   const imageCount = count => `${count} image${count === 1 ? '' : 's'}`;
   status.textContent = `Processing ${imageCount(files.length)}...`;
   try {
@@ -362,6 +455,7 @@ imageInput.addEventListener('change', async () => {
         }
         const text = screenshotText(result.data);
         const updated = updateStopList(stopList.value, text);
+        if (updated.stopOrder?.length) sequences.push(updated.stopOrder);
         stopList.value = updated.text;
         succeeded++;
         const issues = text.trim() ? updated.warnings : ['No stops or packages detected. Try a clearer image.'];
@@ -393,10 +487,32 @@ imageInput.addEventListener('change', async () => {
         console.error('Screenshot OCR cleanup failed:', error);
       }
     }
+    if (awaitingStopOrder && !startupFailed && !storageConflict && stops.length) {
+      try {
+        const order = await chooseStopOrder(stops, sequences);
+        if (order === null) {
+          if (!storageConflict) {
+            stopList.value = startingText;
+            importReports = [];
+            orderCancelled = true;
+          }
+        } else stopList.value = formatStops(reorderedStops(stops, order));
+      } catch (error) {
+        console.error('Stop order could not be completed:', error);
+        finishStopOrder(null);
+        stopList.value = startingText;
+        orderFailed = true;
+      }
+    }
+    awaitingStopOrder = false;
     processing = false;
     imageInput.value = '';
     renderProgress();
-    if (startupFailed) {
+    if (orderFailed) {
+      status.textContent = 'Could not finish stop ordering. No stops were added. Try importing again.';
+    } else if (orderCancelled) {
+      status.textContent = 'Import cancelled. No stops were added.';
+    } else if (startupFailed) {
       status.textContent = 'No images processed. Could not start the screenshot reader. Try again.';
     } else if (storageConflict) {
       status.textContent = `${succeeded}/${files.length} images processed. Reload to continue.`;
@@ -411,6 +527,9 @@ imageInput.addEventListener('change', async () => {
         : 'No detection issues found.';
       if (cleanupFailed) result = `${reviewImages ? result + ' ' : ''}Reader could not close. Reload before importing again.`;
       status.textContent = `${completed} ${result}`;
+    }
+    if (cleanupFailed && (orderFailed || orderCancelled)) {
+      status.textContent += ' Reader could not close. Reload before importing again.';
     }
   }
 });

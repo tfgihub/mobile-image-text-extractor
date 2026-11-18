@@ -1,5 +1,5 @@
-import { samePackage } from './identity.mjs?v=rows11';
-import { packageLabelPattern, screenWordPattern } from './ocr.mjs?v=rows11';
+import { samePackage } from './identity.mjs?v=order12';
+import { packageLabelPattern, screenWordPattern, stopListStart } from './ocr.mjs?v=order12';
 
 const streetType = '(?:STREET|ST|AVENUE|AVE|ROAD|RD|PLACE|PL|DRIVE|DR|COURT|CT|WAY|LANE|LN|BOULEVARD|BLVD|CIRCLE|CIR|TERRACE|TER|PARKWAY|PKWY|HIGHWAY|HWY|TRAIL|TRL|LOOP)';
 const addressPattern = new RegExp(
@@ -60,6 +60,7 @@ export function parseStops(text, includeDetails = false) {
   }
 
   const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  lines.splice(0, stopListStart(lines));
   for (const [index, line] of lines.entries()) {
     if (!line) continue;
     const addressLine = line.replace(/^\s*\d{1,3}[.)]?\s+(?=\d+[A-Za-z]?\s)/, '');
@@ -198,17 +199,19 @@ export function readStopList(text, preserveNumbers = false) {
 export function updateStopList(text, scannedText) {
   if (!scannedText.trim()) return { text, warnings: [] };
   const scanned = parseStops(scannedText, true);
+  const stopOrder = scanned.stops.map(stop => addressKey(stop.address));
   if (!scanned.stops.length) {
-    return { text, warnings: scanned.warnings, unreadableRows: scanned.unreadableRows };
+    return { text, warnings: scanned.warnings, unreadableRows: scanned.unreadableRows, stopOrder };
   }
   const existing = readStopList(text, true);
   if (existing.error) {
     return {
       text,
       warnings: ['Fix the existing list format before importing more screenshots. Nothing was added.', ...scanned.warnings],
-      unreadableRows: scanned.unreadableRows.map(row => ({ ...row, warningIndex: row.warningIndex + 1 }))
+      unreadableRows: scanned.unreadableRows.map(row => ({ ...row, warningIndex: row.warningIndex + 1 })),
+      stopOrder
     };
   }
   const warnings = [...scanned.warnings];
-  return { text: formatStops(mergeStops(existing.stops, scanned.stops, warnings)), warnings, unreadableRows: scanned.unreadableRows };
+  return { text: formatStops(mergeStops(existing.stops, scanned.stops, warnings)), warnings, unreadableRows: scanned.unreadableRows, stopOrder };
 }

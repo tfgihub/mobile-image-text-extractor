@@ -21,7 +21,7 @@
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.2/dist/iife/reader/index.js"></script>
-  <script type="module" src="./app.mjs?v=rows11"></script>
+  <script type="module" src="./app.mjs?v=order12"></script>
   <style>
     :root {
       color-scheme: light;
@@ -109,6 +109,16 @@
     #restoreDialog h2 { font-size: 20px; color: var(--text); }
     #restoreMessage { font-size: 14px; color: var(--muted); }
     #rescanButton, #clearSavedRunButton { margin-top: 10px; }
+    #stopOrderDialog h2 { font-size: 20px; color: var(--text); }
+    #stopOrderMessage { color: var(--muted); font-size: 14px; }
+    #stopOrderGroups { list-style: none; padding: 0; max-height: 42dvh; overflow-y: auto; text-align: left; }
+    .order-group { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin: 8px 0; overflow-wrap: anywhere; }
+    .order-group ul { padding-left: 18px; margin: 0 0 10px; font-size: 14px; }
+    .order-actions { display: flex; gap: 8px; }
+    .order-actions button { flex: 1; width: auto; padding: 10px 6px; font-size: 12px; }
+    #stopOrderError { color: var(--error); font-size: 13px; }
+    #stopOrderError:empty { display: none; }
+    #cancelStopOrderButton { margin-top: 10px; }
     @media (max-width: 360px) {
       section { padding: 16px; }
       .brand-mark { width: 26px; height: 26px; }
@@ -163,6 +173,14 @@
     <p class="note" id="privacy">Images never leave this browser.</p>
     <p class="note" id="saveStatus" role="status" aria-live="polite"></p>
   </main>
+  <dialog id="stopOrderDialog" aria-labelledby="stopOrderTitle" aria-describedby="stopOrderMessage">
+    <h2 id="stopOrderTitle">Confirm stop order</h2>
+    <p id="stopOrderMessage"></p>
+    <ol id="stopOrderGroups"></ol>
+    <p id="stopOrderError" role="alert"></p>
+    <button id="confirmStopOrderButton" type="button">Use this order</button>
+    <button id="cancelStopOrderButton" type="button" class="secondary">Cancel import</button>
+  </dialog>
   <dialog id="restoreDialog" aria-labelledby="restoreTitle" aria-describedby="restoreMessage">
     <h2 id="restoreTitle">Continue previous run?</h2>
     <p id="restoreMessage">Your package list, confirmed scans and NEW-stop history are saved on this device.</p>

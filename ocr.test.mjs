@@ -75,3 +75,16 @@ test('malformed OCR text and geometry fail explicitly', () => {
   assert.throws(() => screenshotText(data([{ text: 'QVZX' }])), /invalid text positions/);
   assert.throws(() => screenshotText(data([line('QVZX', 0, 0, 0)])), /invalid text positions/);
 });
+
+test('photo labels above the list cannot justify a partial label below the photo', () => {
+  const text = screenshotText(data([
+    line('Package ID', 60, 10), line('ZZ99', 60, 40),
+    line('"Ready - CART_7"', 20, 100),
+    line('Alex Sample #3001', 20, 140),
+    line('p', 60, 180, 8, 10), line('QVZX', 60, 205)
+  ]));
+  const parsed = parseStops(text);
+  assert.deepEqual(parsed.stops[0].packages, []);
+  assert.match(parsed.warnings.join(' '), /Unlabelled text "QVZX"/);
+  assert.doesNotMatch(text, /ZZ99/);
+});
