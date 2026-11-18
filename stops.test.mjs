@@ -24,13 +24,13 @@ test('handles IDs on following lines and warns about incomplete or unassigned ro
   assert.deepEqual(result.stops[0].packages, ['spWrapped1']);
   assert.equal(result.stops[1].packages.length, 0);
   assert.equal(result.warnings.length, 3);
-  assert.match(result.warnings[0], /before an address/);
+  assert.match(result.warnings[0], /before a stop heading/);
   assert.match(result.warnings[1], /2 package row/);
 });
 
 test('ignores UI noise, does not invent an address, and detects missing package IDs', () => {
   assert.equal(parseStops('Edit stop\nContinue with 2 packages\nImprove the map').stops.length, 0);
-  assert.match(parseStops('Hello world').warnings[0], /No street address/);
+  assert.match(parseStops('Hello world').warnings[0], /No stop heading/);
   assert.match(parseStops('100 Example Lane').warnings[0], /no recognized package/);
 });
 
@@ -83,19 +83,50 @@ test('repeated scans do not duplicate IDs and preserve addresses with no package
   assert.deepEqual(readStopList(second.text).stops[0], { address: 'Locker A', packages: [] });
 });
 
-test('unexpected manual formatting is preserved verbatim instead of silently discarded', () => {
+test('invalid manual formatting blocks imports rather than adding duplicates or losing edits', () => {
   const original = 'Personal address\nPackage ID needs correction\n\nNotes: keep this text\n';
   const updated = updateStopList(original, '100 Example St\nUnknown spPackageABC');
-  assert.ok(updated.text.startsWith(original));
-  assert.ok(updated.text.includes('spPackageABC'));
-  assert.match(updated.warnings[0], /kept as-is/);
+  assert.equal(updated.text, original);
+  assert.match(updated.warnings[0], /Nothing was added/);
 });
 
-test('unrecognized scans retain raw OCR in the same box and empty scans leave edits untouched', () => {
+test('unrecognized and empty scans leave edits untouched', () => {
   const original = '1. Locker A\n   - corrected_ID';
   const unknown = 'Unrecognized address\nUnknown spPackageABC';
   const updated = updateStopList(original, unknown);
-  assert.equal(updated.text, original + '\n\n' + unknown);
-  assert.match(updated.warnings.join(' '), /Raw text was kept/);
+  assert.equal(updated.text, original);
+  assert.match(updated.warnings.join(' '), /Nothing was added/);
   assert.deepEqual(updateStopList(original, '  \n'), { text: original, warnings: [] });
+});
+
+test('imports recipient references and Package ID rows, including redacted row labels', () => {
+  const parsed = parseStops('"Ready - CART_7" 20 OF 40\nExample Person #1234\nPackage ID\nAB12\nv\nCD34\nPackage ID EF56\nOther Person #5678\nPackage ID\n0G78\nPackage ID');
+  assert.deepEqual(parsed.stops, [
+    { address: 'Example Person #1234', packages: ['AB12', 'CD34', 'EF56'] },
+    { address: 'Other Person #5678', packages: ['0G78'] }
+  ]);
+  assert.match(parsed.warnings.join(' '), /no readable ID/);
+});
+
+test('merges overlapping screenshots by reference despite redacted names and repeated codes', () => {
+  const first = updateStopList('', 'Example Person\n#1234\nPackage ID\nAB12\nPackage ID\nCD34\nOther Person #5678\nPackage ID');
+  const second = updateStopList(first.text, '#1234\nPackage ID\nAB12\nPackage ID\nCD34\nPackage ID\nEF56\n#5678\nPackage ID\n0G78');
+  assert.deepEqual(readStopList(second.text).stops, [
+    { address: 'Example Person #1234', packages: ['AB12', 'CD34', 'EF56'] },
+    { address: 'Other Person #5678', packages: ['0G78'] }
+  ]);
+  assert.equal(updateStopList(second.text, '#1234\nPackage ID\nAB12\nPackage ID\nCD34\nPackage ID\nEF56').text, second.text);
+});
+
+test('does not duplicate a package across different stop headings and reports the conflict', () => {
+  const result = updateStopList('1. Example Person #1234\n - AB12', 'Other Person #5678\nPackage ID\nAB12');
+  assert.equal(readStopList(result.text).stops.length, 1);
+  assert.match(result.warnings.join(' '), /already belongs/);
+});
+
+test('short and full forms of the same package at the same stop count once', () => {
+  assert.deepEqual(mergeStops(
+    [{ address: 'Example #1234', packages: ['ab12'] }],
+    [{ address: 'Example #1234', packages: ['trackingAB12', 'AB12'] }]
+  ), [{ address: 'Example #1234', packages: ['trackingAB12'] }]);
 });

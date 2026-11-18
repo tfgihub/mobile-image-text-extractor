@@ -1,4 +1,6 @@
-export function createLiveCamera({ video, onText, onStatus, onActive, onStop }) {
+import { prepareBarcodeReader, decodeBarcodeFrame } from './barcode.mjs?v=barcode1';
+
+export function createLiveCamera({ video, onCodes, onStatus, onActive, onStop, onTiming = () => {} }) {
   let session;
 
   function stop(message = 'Camera stopped. You can edit the list or open the camera again.') {
@@ -19,9 +21,9 @@ export function createLiveCamera({ video, onText, onStatus, onActive, onStop }) 
       if (!globalThis.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
         throw new Error('Live camera requires HTTPS and a browser with camera support.');
       }
-      if (!globalThis.Tesseract) {
-        throw new Error('OCR could not load. Check your internet connection. Copy your list before reloading.');
-      }
+      onStatus('Loading Data Matrix / QR decoder...');
+      await prepareBarcodeReader();
+      if (current.cancelled) return;
       onStatus('Requesting rear camera access...');
       current.stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
@@ -36,25 +38,41 @@ export function createLiveCamera({ video, onText, onStatus, onActive, onStop }) 
       video.srcObject = current.stream;
       await video.play();
       if (current.cancelled) return;
-      onStatus('Loading live OCR... The first start downloads English language data.');
-      current.worker = await Tesseract.createWorker('eng');
-      if (current.cancelled) return;
-      await current.worker.setParameters({ tessedit_pageseg_mode: '11' });
       const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d');
+      const context = canvas.getContext('2d', { willReadFrequently: true });
       if (!context) throw new Error('This browser could not create a camera frame.');
-      onStatus('Scanning label codes and bag counts... Show one label at a time.');
+      onStatus('Scanning Data Matrix / QR codes... Show one whole package label.');
       while (!current.cancelled) {
         if (video.readyState >= 2 && video.videoWidth && video.videoHeight) {
-          const scale = Math.min(1, 1600 / video.videoWidth);
+          const scale = Math.min(1, 1280 / video.videoWidth);
           canvas.width = Math.round(video.videoWidth * scale);
           canvas.height = Math.round(video.videoHeight * scale);
           context.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const result = await current.worker.recognize(canvas);
+          const start = performance.now();
+          const codes = await decodeBarcodeFrame(context.getImageData(0, 0, canvas.width, canvas.height));
           if (current.cancelled) break;
-          await onText(result.data.text);
+          onTiming(Math.round(performance.now() - start));
+          if (codes.length) {
+            let bagTask;
+            const readBags = () => {
+              if (!bagTask) {
+                bagTask = (async () => {
+                  if (!globalThis.Tesseract) throw new Error('Bag-count OCR did not load. Enter the bag count manually.');
+                  if (!current.worker) {
+                    current.worker = await Tesseract.createWorker('eng');
+                    if (current.cancelled) return '';
+                    await current.worker.setParameters({ tessedit_pageseg_mode: '11' });
+                  }
+                  const result = await current.worker.recognize(canvas);
+                  return result.data.text;
+                })();
+              }
+              return bagTask;
+            };
+            await onCodes(codes, readBags);
+          }
         }
-        if (!current.cancelled) await new Promise(resolve => setTimeout(resolve, 350));
+        if (!current.cancelled) await new Promise(resolve => setTimeout(resolve, 100));
       }
     } catch (error) {
       if (!current.cancelled) {

@@ -1,4 +1,4 @@
-import { readStopList } from './stops.mjs';
+import { readStopList } from './stops.mjs?v=barcode1';
 
 export function getScanStops(text) {
   const parsed = readStopList(text);
@@ -28,32 +28,18 @@ export function getScanStops(text) {
   return { stops, error: null };
 }
 
-export function readBagLabel(text) {
+export function readBagCount(text) {
   const fractions = [...text.matchAll(/(?:^|[^A-Za-z0-9])(\d+)\s*(?:[o0]f|\/)\s*(\d+)\s*bags?\b/gi)];
-  if (!fractions.length) return { kind: 'reading' };
-  const lines = text.split(/\r?\n/).map(line => line.trim());
-  const codes = [];
-  let weightLine = -1;
-  for (const [index, line] of lines.entries()) {
-    if (/\bweight\b/i.test(line)) weightLine = index;
-    const match = line.match(/^[|(\[]*\s*([A-Za-z0-9]{4})\s*[|)\].,]*$/);
-    if (match && !/^(?:BAGS|HOUR|FROM|SHIP|DATE|TIME|STOP)$/i.test(match[1])) {
-      codes.push({ code: match[1].toUpperCase(), index });
-    }
-  }
-  const belowWeight = codes.filter(item => weightLine >= 0 && item.index > weightLine);
-  const candidates = [...new Set((belowWeight.length ? belowWeight : codes).map(item => item.code))];
-  if (!candidates.length) return { kind: 'reading' };
-  const code = candidates.join(', ');
-  if (candidates.length > 1 || new Set(fractions.map(item => `${Number(item[1])}/${Number(item[2])}`)).size > 1) {
-    return { kind: 'check', code, message: 'More than one label or bag count was read. Check the package and show only one label at a time. Nothing was added.' };
+  if (!fractions.length) return { error: 'Bag count was not readable. Enter it from the label or rescan.' };
+  if (new Set(fractions.map(item => `${Number(item[1])}/${Number(item[2])}`)).size > 1) {
+    return { error: 'Multiple bag counts were read. Check the label and enter the correct values.' };
   }
   const bagNumber = Number(fractions[0][1]);
   const totalBags = Number(fractions[0][2]);
   if (!Number.isSafeInteger(bagNumber) || !Number.isSafeInteger(totalBags) || bagNumber < 1 || totalBags < 1 || bagNumber > totalBags) {
-    return { kind: 'check', code, message: 'The bag number or total is invalid. Check the package and rescan. Nothing was added.' };
+    return { error: 'The bag number or total is invalid. Check the label.' };
   }
-  return { kind: 'label', code, bagNumber, totalBags };
+  return { bagNumber, totalBags, error: null };
 }
 
 export function stopProgress(stop, readings) {
@@ -69,22 +55,37 @@ export function stopProgress(stop, readings) {
   };
 }
 
-export function inspectPackageLabel(text, stops, readings) {
-  const label = readBagLabel(text);
-  if (label.kind !== 'label') return label;
-  const matches = stops.flatMap(stop =>
-    stop.packages.filter(id => id.length >= 4 && id.slice(-4).toUpperCase() === label.code)
+export function matchBarcode(payload, stops, readings) {
+  const barcode = payload.trim();
+  if (!/^[A-Za-z0-9_-]{4,}$/.test(barcode)) {
+    return { kind: 'check', code: barcode, message: 'This barcode does not contain a supported package ID. Check the package; nothing was assigned.' };
+  }
+  const code = barcode.slice(-4).toUpperCase();
+  const allPackages = stops.flatMap(stop => stop.packages.map(packageId => ({ stop, packageId })));
+  const exact = allPackages.filter(item => item.packageId.toUpperCase() === barcode.toUpperCase());
+  const matches = exact.length ? exact : stops.flatMap(stop =>
+    stop.packages.filter(id => id.length >= 4 && id.slice(-4).toUpperCase() === code)
       .map(packageId => ({ stop, packageId }))
   );
   if (matches.length !== 1) {
     return {
-      ...label, kind: 'check',
+      kind: 'check', code, barcode,
       message: matches.length
         ? 'This four-character code matches multiple listed package IDs. Check the package; nothing was assigned to a stop.'
         : 'This package code is not in the stop list. Check the package; it was not added to any stop.'
     };
   }
   const match = matches[0];
+  if (readings.has(match.packageId)) return { kind: 'duplicate', code, barcode };
+  return { kind: 'candidate', code, barcode, ...match };
+}
+
+export function validateBagMatch(candidate, bagNumber, totalBags, readings) {
+  const label = { code: candidate.code, bagNumber, totalBags };
+  if (!Number.isSafeInteger(bagNumber) || !Number.isSafeInteger(totalBags) || bagNumber < 1 || totalBags < 1 || bagNumber > totalBags) {
+    return { kind: 'check', message: 'Enter a valid bag number and total from the label (for example 1 of 3).' };
+  }
+  const match = candidate;
   const previous = readings.get(match.packageId);
   if (previous) {
     if (previous.bagNumber === label.bagNumber && previous.totalBags === label.totalBags) {
@@ -96,5 +97,5 @@ export function inspectPackageLabel(text, stops, readings) {
   if (otherLabels.some(item => item.totalBags !== label.totalBags || item.bagNumber === label.bagNumber)) {
     return { ...label, kind: 'check', message: 'This bag number or total conflicts with another package at this stop. Check the packages; nothing was added.' };
   }
-  return { ...label, ...match, kind: 'match' };
+  return { ...match, ...label, kind: 'match' };
 }

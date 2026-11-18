@@ -4,308 +4,99 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#007aff">
-  <meta name="description" content="A simple editable stop and package list. Scan photos locally in your browser.">
+  <meta name="description" content="Import package screenshots, then group packages using Data Matrix and QR scanning on your phone.">
   <title>Stops &amp; Packages - Prototype</title>
   <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.2/dist/iife/reader/index.js"></script>
+  <script type="module" src="./app.mjs?v=barcode1"></script>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 20px; max-width: 600px; margin: auto; color: #17212f; background: #fff; }
+    [hidden] { display: none !important; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 18px; max-width: 640px; margin: auto; color: #17212f; background: #fff; }
     h1 { font-size: 1.65rem; margin-bottom: 8px; }
+    h2 { font-size: 1.3rem; }
     label { display: block; font-weight: 600; margin-top: 16px; }
     input, button { width: 100%; padding: 12px; margin: 10px 0; font: inherit; font-size: 16px; border-radius: 8px; }
     input { border: 1px solid #aeb8c4; }
     button { background: #0067d6; color: white; border: none; font-weight: bold; cursor: pointer; min-height: 48px; }
     button:disabled { background: #dce2e9; color: #526071; cursor: not-allowed; }
-    textarea { width: 100%; height: 48vh; min-height: 280px; padding: 12px; font: inherit; font-size: 16px; line-height: 1.5; border: 1px solid #aeb8c4; border-radius: 8px; resize: vertical; }
+    textarea { width: 100%; height: 42vh; min-height: 260px; padding: 12px; font: inherit; font-size: 16px; line-height: 1.5; border: 1px solid #aeb8c4; border-radius: 8px; resize: vertical; }
     :focus-visible { outline: 3px solid #007aff; outline-offset: 3px; }
-    #status { color: #445164; font-size: 14px; margin: 12px 0; white-space: pre-line; overflow-wrap: anywhere; }
     .note { color: #526071; font-size: 14px; line-height: 1.5; }
-    .actions { display: flex; gap: 12px; }
+    .actions, nav { display: flex; gap: 10px; }
+    nav button { font-size: 14px; }
     .secondary { background: #edf3fa; color: #174979; border: 1px solid #aeb8c4; }
-    #cameraPreview { width: 100%; max-height: 45vh; border-radius: 8px; background: #101820; }
-    #cameraStatus, #listError { white-space: pre-line; overflow-wrap: anywhere; }
-    #listError { color: #8a3500; }
+    [aria-current="step"] { box-shadow: inset 0 -4px 0 #173955; }
+    #cameraPreview { width: 100%; max-height: 48vh; border-radius: 8px; background: #101820; }
+    #status, #cameraStatus, #listError, #importMessages, #matchMessage { white-space: pre-line; overflow-wrap: anywhere; }
+    #listError, #matchMessage { color: #8a3500; }
     .stop-card { border: 1px solid #aeb8c4; border-radius: 8px; padding: 14px; margin: 12px 0; overflow-wrap: anywhere; }
     .stop-card h3 { margin: 0 0 8px; }
     .stop-card.complete { background: #d3f4d8; border-color: #227a37; }
     .found { color: #17662a; font-weight: 600; }
-    dialog { width: min(90vw, 440px); max-height: 90vh; overflow: auto; text-align: center; padding: 24px; border: 2px solid #0067d6; border-radius: 16px; }
+    dialog { width: min(94vw, 460px); max-height: 94dvh; overflow: auto; text-align: center; padding: 18px; border: 2px solid #0067d6; border-radius: 16px; }
     dialog::backdrop { background: rgb(0 0 0 / 65%); }
-    #matchStopNumber { display: block; font-size: clamp(80px, 24vw, 150px); line-height: 1.15; font-weight: 800; color: #0067d6; }
-    #matchStopNumber[hidden] { display: none; }
-    #matchPackageId, #matchAddress { overflow-wrap: anywhere; }
-    #matchCount { font-size: 28px; font-weight: 700; }
+    #matchStopNumber { display: block; font-size: clamp(72px, 22vw, 130px); line-height: 1.1; font-weight: 800; color: #0067d6; }
+    #matchCode { font-size: 28px; font-weight: 700; margin: 10px 0; }
+    #matchPackageId, #matchAddress { overflow-wrap: anywhere; font-size: 14px; }
+    #matchCount { font-size: 20px; font-weight: 700; }
+    #bagFields { display: flex; gap: 12px; text-align: left; }
+    #bagFields label { flex: 1; min-width: 0; margin-top: 0; }
   </style>
 </head>
 <body>
   <main>
     <h1>Stops &amp; Packages</h1>
-    <p class="note">Prototype: scan screenshots into one list. Edit addresses and package IDs directly below.</p>
-    <label for="imageInput">Add a screenshot or photo</label>
-    <input type="file" id="imageInput" accept="image/*" aria-describedby="privacy">
-    <p id="status" role="status" aria-live="polite">Scan a photo or type your stops below.</p>
-    <label for="stopList">Your stops and packages</label>
-    <p class="note" id="formatHelp">Address first, then one package ID per line with a dash. Leave a blank line between stops. Check OCR results for mistakes.</p>
-    <textarea id="stopList" placeholder="1. Stop address&#10;   - Package ID&#10;   - Package ID&#10;&#10;2. Next stop address&#10;   - Package ID" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="formatHelp"></textarea>
-    <div class="actions">
-      <button id="copyButton" type="button" disabled>Copy List</button>
-      <button id="clearButton" type="button" class="secondary" disabled>Clear</button>
-    </div>
-    <section aria-labelledby="cameraHeading">
-      <h2 id="cameraHeading">Find packages with camera</h2>
-      <p class="note">Show one whole label, including its four-character code and "1 of 3 bags" text. The code must uniquely match the last four characters of a listed package ID. Unknown or conflicting labels are not added. Stop the camera to edit your list.</p>
-      <button id="cameraButton" type="button" disabled>Open Live Camera</button>
+    <p class="note">Prototype - two steps, processed locally on your phone.</p>
+    <nav aria-label="Workflow steps">
+      <button id="step1Button" type="button" aria-current="step">1. Upload list</button>
+      <button id="step2Button" type="button" class="secondary" disabled>2. Group packages</button>
+    </nav>
+    <section id="uploadStep" aria-labelledby="uploadHeading">
+      <h2 id="uploadHeading">1. Upload and check your package list</h2>
+      <p class="note">Select multiple screenshots together. Customer/# rows and street-address stops are supported. Overlapping stops and package IDs are merged; conflicts are reported, not duplicated. Screenshot checkmarks do not count as packages found here.</p>
+      <label for="imageInput">Package-list screenshots</label>
+      <input type="file" id="imageInput" accept="image/*" multiple aria-describedby="privacy">
+      <p id="status" role="status" aria-live="polite">Upload screenshots or type your list below.</p>
+      <ul id="importMessages"></ul>
+      <label for="stopList">Your editable list</label>
+      <p class="note" id="formatHelp">One stop/customer heading followed by package IDs, one per line. Leave a blank line between stops. Review OCR, especially 0/O and customer reference numbers. A # reference is not treated as a stop number.</p>
+      <textarea id="stopList" placeholder="1. Customer #1234&#10;   - AB12&#10;   - CD34&#10;&#10;2. Next customer #5678&#10;   - EF56" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="formatHelp"></textarea>
+      <p id="listError" role="status"></p>
+      <div class="actions">
+        <button id="copyButton" type="button" disabled>Copy List</button>
+        <button id="clearButton" type="button" class="secondary" disabled>Clear</button>
+      </div>
+      <button id="nextButton" type="button" disabled>Next: Group Packages</button>
+    </section>
+    <section id="groupStep" aria-labelledby="groupHeading" hidden>
+      <h2 id="groupHeading">2. Scan and group packages</h2>
+      <p class="note">Show one whole label. The camera decodes its Data Matrix or QR code, not printed package numbers. OCR is used only for bag counts after a match. Check the count, then confirm; Rescan never counts the package.</p>
+      <button id="cameraButton" type="button">Open Live Camera</button>
       <video id="cameraPreview" autoplay muted playsinline hidden aria-label="Live package camera"></video>
       <p id="cameraStatus" role="status" aria-live="polite">Camera is off.</p>
-    </section>
-    <section aria-labelledby="progressHeading">
-      <h2 id="progressHeading">Package progress</h2>
-      <p id="listError" role="status"></p>
+      <p id="decodeTiming" class="note"></p>
       <div id="stopProgress"></div>
       <button id="resetProgressButton" type="button" class="secondary" disabled>Reset Found Packages</button>
+      <button id="backButton" type="button" class="secondary">Back: Edit List</button>
     </section>
-    <p class="note" id="privacy">Photos stay in your browser. Internet is required for OCR.
-      Camera frames are processed locally, not uploaded. The list and found-package progress are not saved:
-      copy your list before refreshing or closing this tab. The camera stops when you leave this page.</p>
+    <p class="note" id="privacy">Images and camera frames stay in your browser. Internet is required to download the scanning engines.
+      The list and progress are not saved. Copy your list before closing or refreshing. Leaving this page stops the camera.</p>
   </main>
-  <dialog id="matchDialog" aria-labelledby="matchTitle" aria-describedby="matchCount matchBagPosition matchPackageId matchAddress matchComplete">
-    <h2 id="matchTitle">Package found at stop</h2>
+  <dialog id="matchDialog" aria-labelledby="matchTitle" aria-describedby="matchCode matchPackageId matchAddress matchMessage">
+    <h2 id="matchTitle" tabindex="-1">Package found at stop</h2>
     <span id="matchStopNumber"></span>
-    <p id="matchCount"></p>
-    <p id="matchBagPosition"></p>
+    <p id="matchCode"></p>
     <p id="matchPackageId"></p>
     <p id="matchAddress"></p>
-    <p id="matchComplete"></p>
-    <button id="matchOkButton" type="button" autofocus>OK - Resume Camera</button>
+    <div id="bagFields">
+      <label>Bag number<input id="bagNumber" type="number" inputmode="numeric" min="1" step="1"></label>
+      <label>Total bags<input id="totalBags" type="number" inputmode="numeric" min="1" step="1"></label>
+    </div>
+    <p id="matchCount"></p>
+    <p id="matchMessage" role="status"></p>
+    <button id="matchOkButton" type="button" disabled>Confirm &amp; Resume</button>
+    <button id="rescanButton" type="button" class="secondary">Rescan - Don't Count</button>
   </dialog>
-  <script type="module">
-    import { updateStopList } from './stops.mjs';
-    import { getScanStops, inspectPackageLabel, stopProgress } from './packages.mjs';
-    import { createLiveCamera } from './live-camera.mjs';
-
-    const imageInput = document.getElementById('imageInput');
-    const statusMessage = document.getElementById('status');
-    const stopList = document.getElementById('stopList');
-    const copyButton = document.getElementById('copyButton');
-    const clearButton = document.getElementById('clearButton');
-    const cameraButton = document.getElementById('cameraButton');
-    const cameraPreview = document.getElementById('cameraPreview');
-    const cameraStatus = document.getElementById('cameraStatus');
-    const listError = document.getElementById('listError');
-    const progressList = document.getElementById('stopProgress');
-    const resetProgressButton = document.getElementById('resetProgressButton');
-    const matchDialog = document.getElementById('matchDialog');
-    const matchOkButton = document.getElementById('matchOkButton');
-    const readings = new Map();
-    const alertedLabels = new Set();
-    let scanStops = [];
-    let listValid = false;
-    let cameraActive = false;
-    let acknowledgeMatch;
-    let processing = false;
-
-    function updateButtons() {
-      const busy = processing || cameraActive;
-      copyButton.disabled = clearButton.disabled = busy || !stopList.value.trim();
-      imageInput.disabled = stopList.readOnly = busy;
-      cameraButton.disabled = processing || (!cameraActive && !listValid);
-      cameraButton.textContent = cameraActive ? 'Stop Camera' : 'Open Live Camera';
-      resetProgressButton.disabled = busy || !readings.size;
-    }
-
-    function renderProgress() {
-      const parsed = getScanStops(stopList.value);
-      scanStops = parsed.stops;
-      listValid = !parsed.error;
-      listError.textContent = parsed.error || '';
-      progressList.replaceChildren();
-      for (const stop of scanStops) {
-        const progress = stopProgress(stop, readings);
-        const card = document.createElement('div');
-        card.className = 'stop-card' + (progress.complete ? ' complete' : '');
-        const heading = document.createElement('h3');
-        heading.textContent = `Stop ${stop.number}: ${stop.address}`;
-        const summary = document.createElement('p');
-        summary.textContent = `${progress.count}/${progress.total} bags found; ${progress.listedFound}/${progress.listedTotal} listed IDs matched` +
-          (progress.complete ? ' - Complete' : '') +
-          (progress.conflict ? ' - Conflicting bag groups: check the list and reset progress.' : '');
-        const packages = document.createElement('ul');
-        for (const id of stop.packages) {
-          const item = document.createElement('li');
-          const label = readings.get(id);
-          item.textContent = id + (label ? ` - ${label.code}: bag ${label.bagNumber}/${label.totalBags} - Found` : ' - Not found');
-          if (label) item.className = 'found';
-          packages.append(item);
-        }
-        card.append(heading, summary, packages);
-        progressList.append(card);
-      }
-      updateButtons();
-    }
-
-    function dismissMatch() {
-      if (matchDialog.open) matchDialog.close();
-      const resolve = acknowledgeMatch;
-      acknowledgeMatch = null;
-      if (resolve) resolve();
-    }
-
-    const camera = createLiveCamera({
-      video: cameraPreview,
-      onActive(active) {
-        cameraActive = active;
-        cameraPreview.hidden = !active;
-        updateButtons();
-      },
-      onStatus(message) { cameraStatus.textContent = message; },
-      onStop: dismissMatch,
-      async onText(text) {
-        const match = inspectPackageLabel(text, scanStops, readings);
-        if (match.kind === 'reading') {
-          cameraStatus.textContent = 'Reading label... Keep the four-character code and bag n of m text in view.';
-          return;
-        }
-        if (match.kind === 'duplicate') return;
-        const noticeKey = JSON.stringify([match.kind, match.code, match.bagNumber, match.totalBags, match.message]);
-        if (match.kind === 'check' && alertedLabels.has(noticeKey)) return;
-        const matched = match.kind === 'match';
-        document.getElementById('matchTitle').textContent = matched ? 'Package found at stop' : 'Check this package';
-        document.getElementById('matchStopNumber').hidden = !matched;
-        document.getElementById('matchStopNumber').textContent = matched ? String(match.stop.number) : '';
-        document.getElementById('matchBagPosition').textContent = match.bagNumber
-          ? `Label: bag ${match.bagNumber} of ${match.totalBags}` : '';
-        document.getElementById('matchPackageId').textContent = matched ? `${match.code} - ${match.packageId}` : match.code;
-        document.getElementById('matchAddress').textContent = matched ? match.stop.address : 'Not assigned to any stop.';
-        if (matched) {
-          readings.set(match.packageId, { code: match.code, bagNumber: match.bagNumber, totalBags: match.totalBags });
-          renderProgress();
-          const progress = stopProgress(match.stop, readings);
-          document.getElementById('matchCount').textContent = `Found ${progress.count}/${progress.total} bags`;
-          document.getElementById('matchComplete').textContent = progress.complete
-            ? 'All bags and listed packages for this stop found!'
-            : `${progress.listedFound}/${progress.listedTotal} listed IDs matched. This stop is not complete yet.`;
-        } else {
-          alertedLabels.add(noticeKey);
-          document.getElementById('matchCount').textContent = 'Check package';
-          document.getElementById('matchComplete').textContent = match.message;
-        }
-        cameraStatus.textContent = 'Scanning paused until you tap OK.';
-        await new Promise(resolve => {
-          acknowledgeMatch = resolve;
-          matchDialog.showModal();
-        });
-      }
-    });
-
-    cameraButton.addEventListener('click', () => {
-      if (cameraActive) {
-        camera.stop();
-      } else {
-        renderProgress();
-        if (listValid) {
-          alertedLabels.clear();
-          camera.start();
-        }
-      }
-    });
-    matchDialog.addEventListener('cancel', event => event.preventDefault());
-    matchOkButton.addEventListener('click', () => {
-      cameraStatus.textContent = 'Scanning label codes and bag counts... Show one label at a time.';
-      dismissMatch();
-    });
-    resetProgressButton.addEventListener('click', () => {
-      if (!confirm('Reset all found-package progress? The stop list will be kept.')) return;
-      readings.clear();
-      alertedLabels.clear();
-      renderProgress();
-      cameraStatus.textContent = 'Found-package progress reset.';
-    });
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) camera.stop('Camera stopped because the page is in the background. Open it again to resume.');
-    });
-    window.addEventListener('pagehide', () => camera.stop());
-
-    imageInput.addEventListener('change', async () => {
-      const file = imageInput.files[0];
-      if (!file || processing || cameraActive) return;
-      if (file.type && !file.type.startsWith('image/')) {
-        statusMessage.textContent = 'Please select an image file.';
-        imageInput.value = '';
-        return;
-      }
-
-      processing = true;
-      imageInput.disabled = true;
-      stopList.readOnly = true;
-      updateButtons();
-      statusMessage.textContent = 'Loading OCR engine... First use downloads English language data.';
-      let worker;
-
-      try {
-        if (!globalThis.Tesseract) {
-          throw new Error('The OCR engine could not load. Check your internet connection and reload the page.');
-        }
-        worker = await Tesseract.createWorker('eng', 1, {
-          logger(message) {
-            if (message.status === 'recognizing text') {
-              statusMessage.textContent = 'Extracting text... ' + Math.round(message.progress * 100) + '%';
-            }
-          }
-        });
-        const result = await worker.recognize(file);
-        if (!result.data.text.trim()) {
-          statusMessage.textContent = 'No text found. Your list is unchanged. Try a clearer photo.';
-        } else {
-          const updated = updateStopList(stopList.value, result.data.text);
-          stopList.value = updated.text;
-          statusMessage.textContent = [
-            'Scan added to this list. Edit any mistakes directly in the box.',
-            ...updated.warnings
-          ].join('\n');
-        }
-      } catch (error) {
-        console.error('Text extraction failed:', error);
-        statusMessage.textContent = 'Error extracting text: ' + (error instanceof Error ? error.message : String(error)) + ' Your existing list has been kept.';
-      } finally {
-        if (worker) {
-          try {
-            await worker.terminate();
-          } catch (error) {
-            console.error('OCR worker cleanup failed:', error);
-            statusMessage.textContent += ' OCR cleanup failed; copy your list before reloading.';
-          }
-        }
-        processing = false;
-        imageInput.value = '';
-        renderProgress();
-      }
-    });
-
-    stopList.addEventListener('input', renderProgress);
-    clearButton.addEventListener('click', () => {
-      if (!confirm('Clear all stops and packages from this tab?')) return;
-      stopList.value = '';
-      readings.clear();
-      alertedLabels.clear();
-      renderProgress();
-      statusMessage.textContent = 'List cleared. Scan a photo or type your stops below.';
-    });
-    copyButton.addEventListener('click', async () => {
-      try {
-        if (!navigator.clipboard || !globalThis.isSecureContext) {
-          throw new Error('Clipboard access requires HTTPS and a supported browser.');
-        }
-        await navigator.clipboard.writeText(stopList.value);
-        statusMessage.textContent = 'List copied!';
-      } catch (error) {
-        console.error('Clipboard copy failed:', error);
-        stopList.focus();
-        stopList.select();
-        stopList.setSelectionRange(0, stopList.value.length);
-        statusMessage.textContent = 'Could not copy automatically. Touch and hold the selected text and choose Copy.';
-      }
-    });
-    renderProgress();
-  </script>
 </body>
 </html>

@@ -5,18 +5,35 @@ const addressPattern = new RegExp(
 );
 
 export function addressKey(address) {
+  const reference = address.match(/#\s*(\d+)\b/);
+  if (reference && !addressPattern.test(address)) return `recipient:${reference[1]}`;
   return address.trim().replace(/\s+/g, ' ').replace(/[.,]/g, '').toUpperCase();
 }
 
-export function mergeStops(existing, incoming) {
-  const merged = existing.map(stop => ({ address: stop.address, packages: [...stop.packages] }));
-  for (const stop of incoming) {
-    const match = merged.find(item => addressKey(item.address) === addressKey(stop.address));
-    if (match) {
-      match.packages = [...new Set([...match.packages, ...stop.packages])];
-    } else {
-      merged.push({ address: stop.address.trim(), packages: [...new Set(stop.packages)] });
+function samePackage(left, right) {
+  if (left === right) return true;
+  return Math.min(left.length, right.length) === 4 &&
+    left.slice(-4).toUpperCase() === right.slice(-4).toUpperCase();
+}
+
+export function mergeStops(existing, incoming, warnings = []) {
+  const merged = [];
+  for (const stop of [...existing, ...incoming]) {
+    let target = merged.find(item => addressKey(item.address) === addressKey(stop.address));
+    const isNew = !target;
+    if (!target) target = { address: stop.address.trim(), packages: [] };
+    for (const rawId of stop.packages) {
+      const id = /^[A-Za-z0-9]{4}$/.test(rawId) ? rawId.toUpperCase() : rawId;
+      const owner = merged.find(item => item.packages.some(saved => samePackage(saved, id)));
+      if (owner && owner !== target) {
+        warnings.push(`Package ${id} already belongs to ${owner.address}; it was not added to ${stop.address}. Check the screenshot.`);
+        continue;
+      }
+      const duplicate = target.packages.findIndex(saved => samePackage(saved, id));
+      if (duplicate < 0) target.packages.push(id);
+      else if (target.packages[duplicate].length === 4 && id.length > 4) target.packages[duplicate] = id;
     }
+    if (isNew && (target.packages.length || !stop.packages.length)) merged.push(target);
   }
   return merged;
 }
@@ -28,6 +45,8 @@ export function parseStops(text) {
   let awaitingPackage = false;
   let unassigned = 0;
   let missing = 0;
+  let pendingName = '';
+  let packageRows = false;
 
   function addPackage(id) {
     if (current) {
@@ -37,16 +56,41 @@ export function parseStops(text) {
     }
   }
 
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  for (const [index, line] of lines.entries()) {
     if (!line) continue;
     const addressLine = line.replace(/^\s*\d{1,3}[.)]?\s+(?=\d+[A-Za-z]?\s)/, '');
     const address = addressLine.match(addressPattern);
-    if (address) {
+    const recipient = line.match(/^(.*?)#\s*(\d{3,})\s*$/);
+    if (address || recipient) {
       if (awaitingPackage) missing++;
       awaitingPackage = false;
-      current = { address: address[0].trim(), packages: [] };
+      const heading = address ? address[0].trim() : `${recipient[1].trim() || pendingName || 'Recipient'} #${recipient[2]}`;
+      current = { address: heading, packages: [] };
       stops.push(current);
+      packageRows = true;
+      pendingName = '';
+      continue;
+    }
+
+    if (/^#\s*\d{3,}\s*$/.test(lines[index + 1] || '') &&
+        /^[A-Za-z][A-Za-z .'-]+$/.test(line) &&
+        !/\b(?:ready|cart|package|scan|verify)\b/i.test(line)) {
+      pendingName = line;
+      continue;
+    }
+
+    const packageRow = line.match(/\bpackage\s*[iIl1][dD]\b(.*)$/i);
+    if (packageRow) {
+      if (awaitingPackage) missing++;
+      packageRows = true;
+      const id = packageRow[1].trim().match(/^[:|=-]*\s*([A-Za-z0-9]{4})\s*$/);
+      if (id) {
+        addPackage(id[1].toUpperCase());
+        awaitingPackage = false;
+      } else {
+        awaitingPackage = 'short';
+      }
       continue;
     }
 
@@ -63,12 +107,20 @@ export function parseStops(text) {
       continue;
     }
 
+    const shortId = line.match(/^[^A-Za-z0-9]*([A-Z0-9]{4})[^A-Za-z0-9]*$/);
+    if (packageRows && shortId && !/^(?:SCAN|BAGS|CART|STOP|NAME|TIME|FROM|SHIP)$/.test(shortId[1])) {
+      addPackage(shortId[1]);
+      awaitingPackage = false;
+      continue;
+    }
     const prefixedIds = line.match(/\bsp[A-Za-z0-9]{4,62}\b/g);
     if (prefixedIds) {
       for (const id of prefixedIds) addPackage(id);
       awaitingPackage = false;
     } else if (awaitingPackage) {
-      if (/^[A-Za-z0-9_-]{4,64}$/.test(line) && /[0-9_-]/.test(line)) {
+      if (awaitingPackage === 'short' && /^[A-Za-z0-9]{4}$/.test(line)) {
+        addPackage(line.toUpperCase());
+      } else if (awaitingPackage !== 'short' && /^[A-Za-z0-9_-]{4,64}$/.test(line) && /[0-9_-]/.test(line)) {
         addPackage(line);
       } else {
         missing++;
@@ -77,11 +129,11 @@ export function parseStops(text) {
     }
   }
   if (awaitingPackage) missing++;
-  if (unassigned) warnings.push(`${unassigned} package ID(s) appeared before an address. Assign them manually.`);
+  if (unassigned) warnings.push(`${unassigned} package ID(s) appeared before a stop heading. Check the screenshot and assign them manually.`);
   if (missing) warnings.push(`${missing} package row(s) had no readable ID. Check the image and fill in missing IDs.`);
-  if (!stops.length) warnings.push('No street address recognized. Raw text was kept in the box; edit it into an address followed by package IDs.');
+  if (!stops.length) warnings.push('No stop heading recognized. Nothing was added. Check the screenshot or enter the stop manually.');
   if (stops.some(stop => !stop.packages.length)) warnings.push('Some stops have no recognized package IDs. Fill them in directly in the box.');
-  return { stops: mergeStops([], stops), warnings };
+  return { stops: mergeStops([], stops, warnings), warnings };
 }
 
 export function formatStops(stops) {
@@ -110,17 +162,15 @@ export function updateStopList(text, scannedText) {
   if (!scannedText.trim()) return { text, warnings: [] };
   const scanned = parseStops(scannedText);
   if (!scanned.stops.length) {
-    return { text: text + (text ? '\n\n' : '') + scannedText.trim(), warnings: scanned.warnings };
+    return { text, warnings: scanned.warnings };
   }
   const existing = readStopList(text);
   if (existing.error) {
     return {
-      text: text + (text ? '\n\n' : '') + formatStops(scanned.stops),
-      warnings: [existing.error, ...scanned.warnings]
+      text,
+      warnings: ['Fix the existing list format before importing more screenshots. Nothing was added.', ...scanned.warnings]
     };
   }
-  return {
-    text: formatStops(mergeStops(existing.stops, scanned.stops)),
-    warnings: scanned.warnings
-  };
+  const warnings = [...scanned.warnings];
+  return { text: formatStops(mergeStops(existing.stops, scanned.stops, warnings)), warnings };
 }
