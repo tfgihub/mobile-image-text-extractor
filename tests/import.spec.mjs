@@ -54,7 +54,7 @@ test('conflicts, orphan rows and clipped IDs are warned about without inventing 
   await app.edit('1. Alex Sample #1001\n - AB12');
   await app.upload(['Package ID\nZZ99\nJamie Example #1002\nPackage ID\nAB12\nPackage ID']);
   await expect(page.locator('#importMessages')).toContainText('already belongs');
-  await expect(page.locator('#importMessages')).toContainText('Jamie Example #1002: 1 package ID not detected.');
+  await expect(page.locator('#importMessages')).toContainText('Jamie Example #1002: 1 package row unreadable in this image.');
   await expect(page.locator('#importMessages')).toContainText('Stop not detected for package ZZ99.');
   await expect(page.locator('#importMessages > li')).toHaveCount(1);
   await expect(page.locator('#importMessages > li > strong')).toHaveText('screenshot-1.png');
@@ -155,15 +155,15 @@ for (const failure of ['startup', 'cleanup']) {
 
 test('only images needing review are listed, with the affected stop, and a clean import clears old notices', async ({ app, page }) => {
   await app.upload([
-    screenshotText,
     'Alex Sample #1001\nPackage ID\nPhoto required\nJamie Example #1002\nUnknown',
+    screenshotText,
     screenshotText
   ]);
   await expect(page.locator('#status')).toHaveText('All 3 images processed. 1 image needs review below.');
-  await expect(page.locator('#importMessages > li > strong')).toHaveText(['screenshot-2.png']);
+  await expect(page.locator('#importMessages > li > strong')).toHaveText(['screenshot-1.png']);
   await expect(page.locator('#importMessages > li > ul > li')).toHaveText([
-    'Alex Sample #1001: 1 package ID not detected.',
-    'Jamie Example #1002: 1 package ID not detected.'
+    'Stop 1: 2 packages listed; 1 package row unreadable in this image.',
+    'Stop 2: 1 package listed; 1 package row unreadable in this image.'
   ]);
   await app.upload([screenshotText]);
   await expect(page.locator('#status')).toHaveText('1 image processed. No detection issues found.');
@@ -221,7 +221,7 @@ for (const theme of ['light', 'dark']) {
       mimeType: 'image/png', buffer: await app.image()
     });
     await expect(page.locator('#status')).toHaveText('1 image processed. 1 image needs review below.');
-    await expect(page.locator('#importMessages')).toContainText('Alex Sample #1001: 1 package ID not detected.');
+    await expect(page.locator('#importMessages')).toContainText('Stop 1: 0 packages listed; 1 package row unreadable in this image.');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 }
@@ -296,4 +296,27 @@ test('real OCR recovers obscured all-letter labels and isolated references acros
   await expect(page.locator('#matchCount')).toHaveText('2 bags of 3 bags');
   await app.acknowledge();
   await app.stop();
+});
+
+test('a listed package never hides unreadable rows, and warnings use combined-list counts even after editing', async ({ app, page }) => {
+  await app.upload([
+    'Taylor Sample #4001\nPackage ID\nP79Q\nCasey Example #4002\nPackage ID\nHPQK',
+    'Alex Sample #3001\nPackage ID\n72LM\nPackage ID\nQVZX\nPackage ID\nRWKP\nRecipient #3002\nPackage ID\nCD34\nPackage ID',
+    'Unclear Name #3002\nPackage ID\nPhoto required'
+  ]);
+  await expect(page.locator('#status')).toHaveText('All 3 images processed. 2 images need review below.');
+  await expect(page.locator('#importMessages > li > strong')).toHaveText(['screenshot-2.png', 'screenshot-3.png']);
+  await expect(page.locator('#importMessages > li > ul > li')).toHaveText([
+    'Stop 4: 1 package listed; 1 package row unreadable in this image.',
+    'Stop 4: 1 package listed; 1 package row unreadable in this image.'
+  ]);
+  const before = await page.locator('#stopList').inputValue();
+  expect(readStopList(before).stops.map(stop => stop.packages)).toEqual([
+    ['P79Q'], ['HPQK'], ['72LM', 'QVZX', 'RWKP'], ['CD34']
+  ]);
+  await app.edit(before + '\n - EF56');
+  await expect(page.locator('#importMessages > li > ul > li')).toHaveText([
+    'Stop 4: 2 packages listed; 1 package row unreadable in this image.',
+    'Stop 4: 2 packages listed; 1 package row unreadable in this image.'
+  ]);
 });

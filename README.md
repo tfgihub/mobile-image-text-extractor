@@ -44,6 +44,12 @@ produce a log. Images needing review are listed once by filename, with the
 affected stop, missing-ID count, readable package with no detected stop, or
 assignment conflict. Unreadable/failed images and interrupted batches are
 identified explicitly. A clean subsequent import clears the previous notices.
+Unreadable-row notices are shown after the batch finishes, using the combined
+list's stop number and package count. For example, "Stop 4: 1 package listed;
+1 package row unreadable in this image" does not mean the listed package was
+missed. It means that image contains a row whose ID could not be read. Finding
+a package in another image does not prove that the unreadable row is the same
+package, so the warning stays visible. Counts update when the list is edited.
 "No detection issues found" means no problems were flagged in the selected
 images, not a guarantee that OCR found content it could not read at all; still
 check the list against the screenshots.

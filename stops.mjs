@@ -1,5 +1,5 @@
-import { samePackage } from './identity.mjs?v=ocr10';
-import { packageLabelPattern, screenWordPattern } from './ocr.mjs?v=ocr10';
+import { samePackage } from './identity.mjs?v=rows11';
+import { packageLabelPattern, screenWordPattern } from './ocr.mjs?v=rows11';
 
 const streetType = '(?:STREET|ST|AVENUE|AVE|ROAD|RD|PLACE|PL|DRIVE|DR|COURT|CT|WAY|LANE|LN|BOULEVARD|BLVD|CIRCLE|CIR|TERRACE|TER|PARKWAY|PKWY|HIGHWAY|HWY|TRAIL|TRL|LOOP)';
 const addressPattern = new RegExp(
@@ -35,9 +35,10 @@ export function mergeStops(existing, incoming, warnings = []) {
   return merged;
 }
 
-export function parseStops(text) {
+export function parseStops(text, includeDetails = false) {
   const stops = [];
   const warnings = [];
+  const unreadableRows = [];
   let current;
   let awaitingPackage = false;
   const unassigned = [];
@@ -139,13 +140,26 @@ export function parseStops(text) {
   if (awaitingPackage) missingPackage();
   if (unassigned.length) warnings.push(`Stop not detected for package${unassigned.length === 1 ? '' : 's'} ${[...new Set(unassigned)].join(', ')}.`);
   for (const [heading, count] of missing) {
+    unreadableRows.push({ heading, stopKey: addressKey(heading), count, warningIndex: warnings.length });
     warnings.push(`${heading}: ${count} package ID${count === 1 ? '' : 's'} not detected.`);
   }
   if (!stops.length && !unassigned.length) warnings.push('No stops detected. Try a clearer image.');
   for (const stop of stops) {
     if (!stop.packages.length && !missing.has(stop.address)) warnings.push(`${stop.address}: no packages detected.`);
   }
-  return { stops: mergeStops([], stops, warnings), warnings };
+  const result = { stops: mergeStops([], stops, warnings), warnings };
+  return includeDetails ? { ...result, unreadableRows } : result;
+}
+
+export function formatImportWarnings(result, listedStops) {
+  return result.warnings.map((message, index) => {
+    const row = result.unreadableRows?.find(item => item.warningIndex === index);
+    if (!row) return message;
+    const stop = listedStops.find(item => addressKey(item.address) === row.stopKey);
+    const heading = stop ? `Stop ${stop.number}` : row.heading;
+    const listed = stop ? `${stop.packages.length} package${stop.packages.length === 1 ? '' : 's'} listed; ` : '';
+    return `${heading}: ${listed}${row.count} package row${row.count === 1 ? '' : 's'} unreadable in this image.`;
+  });
 }
 
 export function formatStops(stops) {
@@ -183,17 +197,18 @@ export function readStopList(text, preserveNumbers = false) {
 
 export function updateStopList(text, scannedText) {
   if (!scannedText.trim()) return { text, warnings: [] };
-  const scanned = parseStops(scannedText);
+  const scanned = parseStops(scannedText, true);
   if (!scanned.stops.length) {
-    return { text, warnings: scanned.warnings };
+    return { text, warnings: scanned.warnings, unreadableRows: scanned.unreadableRows };
   }
   const existing = readStopList(text, true);
   if (existing.error) {
     return {
       text,
-      warnings: ['Fix the existing list format before importing more screenshots. Nothing was added.', ...scanned.warnings]
+      warnings: ['Fix the existing list format before importing more screenshots. Nothing was added.', ...scanned.warnings],
+      unreadableRows: scanned.unreadableRows.map(row => ({ ...row, warningIndex: row.warningIndex + 1 }))
     };
   }
   const warnings = [...scanned.warnings];
-  return { text: formatStops(mergeStops(existing.stops, scanned.stops, warnings)), warnings };
+  return { text: formatStops(mergeStops(existing.stops, scanned.stops, warnings)), warnings, unreadableRows: scanned.unreadableRows };
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseStops, mergeStops, formatStops, readStopList, updateStopList } from './stops.mjs';
+import { parseStops, mergeStops, formatStops, readStopList, updateStopList, formatImportWarnings } from './stops.mjs';
 
 test('clearing a package ID leaves an empty bullet that is ignored rather than a stale package', () => {
   assert.deepEqual(readStopList('1. Example #1234\n -\n - AB12\n *\n - CD34'), {
@@ -192,4 +192,41 @@ test('partial and misread package labels recover codes without changing their ch
   const parsed = parseStops('Alex Sample #3001\nPackage\n)\nQVZX\nDackage ID\nO1C5\nPackan ID\n01C5');
   assert.deepEqual(parsed.stops[0].packages, ['QVZX', 'O1C5', '01C5']);
   assert.deepEqual(parsed.warnings, []);
+});
+
+test('unreadable image rows remain warnings even when a package from that stop is already listed', () => {
+  const listed = [{ number: 4, address: 'Jamie Example #3002', packages: ['CD34'] }];
+  for (const text of [
+    'Recipient #3002\nPackage ID',
+    'Unclear Name #3002\nPackage ID\nCD34\nPackage ID'
+  ]) {
+    const result = updateStopList('', text);
+    assert.deepEqual(formatImportWarnings(result, listed), [
+      'Stop 4: 1 package listed; 1 package row unreadable in this image.'
+    ]);
+  }
+});
+
+test('image warnings show the combined stop number and counts without claiming an additional package was recovered', () => {
+  const result = updateStopList('', 'Recipient #3002\nPackage ID\nPackage ID');
+  const listed = [{ number: 12, address: 'Jamie Example #3002', packages: ['CD34', 'EF56'] }];
+  assert.deepEqual(formatImportWarnings(result, listed), [
+    'Stop 12: 2 packages listed; 2 package rows unreadable in this image.'
+  ]);
+  assert.deepEqual(formatImportWarnings(result, []), [
+    'Recipient #3002: 2 package rows unreadable in this image.'
+  ]);
+});
+
+test('formatting warnings preserves conflicts and messages without structured row metadata', () => {
+  const result = updateStopList('1. Alex Sample #3001\n - AB12', 'Jamie Example #3002\nPackage ID\nAB12');
+  assert.deepEqual(formatImportWarnings(result, []), result.warnings);
+  assert.deepEqual(formatImportWarnings({ warnings: ['Could not read image.'] }, []), ['Could not read image.']);
+});
+
+test('format errors remain visible when unreadable-row warning positions shift', () => {
+  const result = updateStopList('1. Invalid\n - AB1', 'Jamie Example #3002\nPackage ID');
+  const messages = formatImportWarnings(result, []);
+  assert.match(messages[0], /Fix the existing list format/);
+  assert.equal(messages[1], 'Jamie Example #3002: 1 package row unreadable in this image.');
 });

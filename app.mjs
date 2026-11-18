@@ -1,9 +1,9 @@
-import { readStopList, updateStopList } from './stops.mjs?v=ocr10';
-import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice, isRunComplete, movedConfirmedPackage } from './packages.mjs?v=ocr10';
-import { createLiveCamera } from './live-camera.mjs?v=ocr10';
-import { packageKey } from './identity.mjs?v=ocr10';
-import { runStorageKey, serializeRun, parseSavedRun } from './saved-run.mjs?v=ocr10';
-import { screenshotText } from './ocr.mjs?v=ocr10';
+import { readStopList, updateStopList, formatImportWarnings } from './stops.mjs?v=rows11';
+import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice, isRunComplete, movedConfirmedPackage } from './packages.mjs?v=rows11';
+import { createLiveCamera } from './live-camera.mjs?v=rows11';
+import { packageKey } from './identity.mjs?v=rows11';
+import { runStorageKey, serializeRun, parseSavedRun } from './saved-run.mjs?v=rows11';
+import { screenshotText } from './ocr.mjs?v=rows11';
 
 const byId = id => document.getElementById(id);
 const stopList = byId('stopList');
@@ -19,6 +19,7 @@ const shownStops = new Set();
 let stops = [];
 let valid = false;
 let processing = false;
+let importReports = [];
 let cameraActive = false;
 let pending;
 let releaseNotice;
@@ -149,6 +150,7 @@ function renderProgress() {
     byId('stopProgress').append(card);
   }
   byId('completionStatus').hidden = !isRunComplete(stops, readings);
+  renderImportMessages();
   updateButtons();
   persistRun();
 }
@@ -306,10 +308,19 @@ function importMessage(label, messages = []) {
   byId('importMessages').append(item);
 }
 
+function renderImportMessages() {
+  byId('importMessages').replaceChildren();
+  if (processing) return;
+  for (const report of importReports) {
+    importMessage(report.name, formatImportWarnings(report.result, stops));
+  }
+}
+
 imageInput.addEventListener('change', async () => {
   const files = [...imageInput.files];
   if (!files.length || processing || cameraActive || awaitingRestore || storageConflict) return;
-  byId('importMessages').replaceChildren();
+  importReports = [];
+  renderImportMessages();
   if (readStopList(stopList.value).error) {
     status.textContent = 'No images processed. Fix the list format first.';
     imageInput.value = '';
@@ -356,7 +367,7 @@ imageInput.addEventListener('change', async () => {
         const issues = text.trim() ? updated.warnings : ['No stops or packages detected. Try a clearer image.'];
         if (issues.length) {
           reviewImages++;
-          importMessage(file.name, issues);
+          importReports.push({ name: file.name, result: { warnings: issues, unreadableRows: updated.unreadableRows } });
         }
         renderProgress();
       } catch (error) {
@@ -366,7 +377,7 @@ imageInput.addEventListener('change', async () => {
         const message = file.type && !file.type.startsWith('image/')
           ? 'Not an image. Choose a screenshot.'
           : 'Could not read image. Try again or choose another screenshot.';
-        importMessage(file.name, [message]);
+        importReports.push({ name: file.name, result: { warnings: [message] } });
       } finally {
         if (bitmap) bitmap.close();
       }
@@ -410,7 +421,7 @@ byId('clearButton').addEventListener('click', () => {
   readings.clear();
   alerted.clear();
   shownStops.clear();
-  byId('importMessages').replaceChildren();
+  importReports = [];
   status.textContent = '';
   renderProgress();
 });
