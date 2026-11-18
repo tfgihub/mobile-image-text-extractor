@@ -79,14 +79,48 @@ export function parseStops(text) {
   if (awaitingPackage) missing++;
   if (unassigned) warnings.push(`${unassigned} package ID(s) appeared before an address. Assign them manually.`);
   if (missing) warnings.push(`${missing} package row(s) had no readable ID. Check the image and fill in missing IDs.`);
-  if (!stops.length) warnings.push('No street address recognized. Add a stop manually or correct the extracted text.');
-  if (stops.some(stop => !stop.packages.length)) warnings.push('Some stops have no recognized package IDs. Fill them in before adding.');
+  if (!stops.length) warnings.push('No street address recognized. Raw text was kept in the box; edit it into an address followed by package IDs.');
+  if (stops.some(stop => !stop.packages.length)) warnings.push('Some stops have no recognized package IDs. Fill them in directly in the box.');
   return { stops: mergeStops([], stops), warnings };
 }
 
 export function formatStops(stops) {
   return stops.map((stop, index) =>
-    `${index + 1}. ${stop.address} (${stop.packages.length} package${stop.packages.length === 1 ? '' : 's'})\n` +
+    `${index + 1}. ${stop.address}\n` +
     stop.packages.map(id => `   - ${id}`).join('\n')
   ).join('\n\n');
+}
+
+export function readStopList(text) {
+  const stops = [];
+  for (const block of text.trim().split(/\n\s*\n/)) {
+    if (!block.trim()) continue;
+    const [heading, ...lines] = block.split(/\r?\n/).map(line => line.trim());
+    const address = heading.replace(/^\d+[.)]\s+/, '').replace(/\s+\(\d+ packages?\)$/, '');
+    const packages = lines.map(line => line.replace(/^[-*]\s+/, ''));
+    if (!address || /^[-*]\s/.test(address) || packages.some(id => !/^[A-Za-z0-9_-]+$/.test(id))) {
+      return { stops: [], error: 'Your existing text was kept as-is. New stops were appended without merging. Use an address followed by one package ID per line, with a blank line between stops.' };
+    }
+    stops.push({ address, packages });
+  }
+  return { stops, error: null };
+}
+
+export function updateStopList(text, scannedText) {
+  if (!scannedText.trim()) return { text, warnings: [] };
+  const scanned = parseStops(scannedText);
+  if (!scanned.stops.length) {
+    return { text: text + (text ? '\n\n' : '') + scannedText.trim(), warnings: scanned.warnings };
+  }
+  const existing = readStopList(text);
+  if (existing.error) {
+    return {
+      text: text + (text ? '\n\n' : '') + formatStops(scanned.stops),
+      warnings: [existing.error, ...scanned.warnings]
+    };
+  }
+  return {
+    text: formatStops(mergeStops(existing.stops, scanned.stops)),
+    warnings: scanned.warnings
+  };
 }
