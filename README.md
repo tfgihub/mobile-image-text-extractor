@@ -42,19 +42,40 @@ confirmation. The editor is read-only while a scan runs.
 ### Live camera package matching
 
 After checking the list, tap **Open Live Camera** and allow camera access.
-The rear camera is preferred. Hold the full printed package ID steady in view;
-live OCR reads one frame at a time on the device. It reads text, not barcodes.
-Matching is exact and case-sensitive, without substring matches or guessing
-similar characters. OCR can miss an ID, especially in poor lighting or small print.
+The rear camera is preferred. Show one entire label with its four-character
+package code and **n of m bags** text. Live OCR reads one frame at a time on the
+device. It reads printed text, not barcodes. Both fields must be readable in the
+same frame before a bag is counted. Hold the camera upright and keep the label
+well lit and in focus.
 
-Each newly found ID pauses recognition and opens a notice with a large stop
-number, the package ID, and **Package n/m** (unique packages found / total at
-that stop). Tap **OK - Resume Camera** to resume. Already-found IDs do not trigger
-another notice. If multiple IDs are visible, they are handled one at a time
-across successive frames, each requiring OK.
+The four-character label code matches the last four characters of a listed
+package ID, ignoring letter case but never guessing similar characters such as
+O/0. The match must identify exactly one listed package. The bottom code after
+the Weight line is preferred so the separate `Sp #` value is not mistaken for
+the package code. The label address is not used to assign a stop.
+OCR can confuse Q, O, and 0 on angled or wrinkled labels. An unmatched reading
+produces a check-package notice rather than a guessed assignment. Reposition
+the camera and retry; automatic recognition is not guaranteed for every label.
+
+A match pauses recognition and opens a large stop-number notice showing the
+short code, full listed package ID, **Label: bag n of m**, and **Found x/m bags**.
+The label position and found count are distinct: scanning bags 1 and 3 of 3
+means 2/3 bags found, not complete. Tap **OK - Resume Camera** to resume.
+Repeated readings of the same bag do not increase progress or repeat a match.
+
+Unknown codes, suffixes shared by multiple IDs, conflicting totals, or a bag
+position already used by another package show **Check this package** and are
+never added or assigned to a stop. The same warning is shown once per camera
+session for that reading; reopening the camera permits it again. Show only one
+label at a time. Unreadable/partial labels keep scanning without counting.
 
 The colored progress list below the editor turns a stop green and labels it
-**Complete** only when all its packages have been found. Explicit numbers such
+**Complete** only when all numbered bag positions and all listed package IDs
+for the stop have been found with a consistent bag total. A list containing
+only two IDs cannot turn green from bags 1 and 3 when the label says three bags.
+Each card shows bag progress and listed-ID progress separately. Currently one
+consistent bag group per stop is supported; conflicting groups require checking
+the list and resetting progress. Explicit numbers such
 as `7.` in the editor are used as stop numbers; otherwise list order is used.
 Duplicate stop numbers and IDs assigned to multiple stops must be fixed before
 opening the camera. Duplicate IDs within a stop count once.

@@ -43,7 +43,7 @@ export function createLiveCamera({ video, onText, onStatus, onActive, onStop }) 
       const canvas = document.createElement('canvas');
       const context = canvas.getContext('2d');
       if (!context) throw new Error('This browser could not create a camera frame.');
-      onStatus('Scanning full package IDs... Hold the printed ID steady and in focus.');
+      onStatus('Scanning label codes and bag counts... Show one label at a time.');
       while (!current.cancelled) {
         if (video.readyState >= 2 && video.videoWidth && video.videoHeight) {
           const scale = Math.min(1, 1600 / video.videoWidth);

@@ -32,6 +32,7 @@
     dialog { width: min(90vw, 440px); max-height: 90vh; overflow: auto; text-align: center; padding: 24px; border: 2px solid #0067d6; border-radius: 16px; }
     dialog::backdrop { background: rgb(0 0 0 / 65%); }
     #matchStopNumber { display: block; font-size: clamp(80px, 24vw, 150px); line-height: 1.15; font-weight: 800; color: #0067d6; }
+    #matchStopNumber[hidden] { display: none; }
     #matchPackageId, #matchAddress { overflow-wrap: anywhere; }
     #matchCount { font-size: 28px; font-weight: 700; }
   </style>
@@ -52,7 +53,7 @@
     </div>
     <section aria-labelledby="cameraHeading">
       <h2 id="cameraHeading">Find packages with camera</h2>
-      <p class="note">Point at a printed package ID. Matching uses the full ID, including letter case. Scanning pauses for each new match until you tap OK. Stop the camera to edit your list.</p>
+      <p class="note">Show one whole label, including its four-character code and "1 of 3 bags" text. The code must uniquely match the last four characters of a listed package ID. Unknown or conflicting labels are not added. Stop the camera to edit your list.</p>
       <button id="cameraButton" type="button" disabled>Open Live Camera</button>
       <video id="cameraPreview" autoplay muted playsinline hidden aria-label="Live package camera"></video>
       <p id="cameraStatus" role="status" aria-live="polite">Camera is off.</p>
@@ -67,10 +68,11 @@
       Camera frames are processed locally, not uploaded. The list and found-package progress are not saved:
       copy your list before refreshing or closing this tab. The camera stops when you leave this page.</p>
   </main>
-  <dialog id="matchDialog" aria-labelledby="matchTitle" aria-describedby="matchCount matchPackageId matchAddress">
+  <dialog id="matchDialog" aria-labelledby="matchTitle" aria-describedby="matchCount matchBagPosition matchPackageId matchAddress matchComplete">
     <h2 id="matchTitle">Package found at stop</h2>
     <span id="matchStopNumber"></span>
     <p id="matchCount"></p>
+    <p id="matchBagPosition"></p>
     <p id="matchPackageId"></p>
     <p id="matchAddress"></p>
     <p id="matchComplete"></p>
@@ -78,7 +80,7 @@
   </dialog>
   <script type="module">
     import { updateStopList } from './stops.mjs';
-    import { getScanStops, findNextPackage, stopProgress } from './packages.mjs';
+    import { getScanStops, inspectPackageLabel, stopProgress } from './packages.mjs';
     import { createLiveCamera } from './live-camera.mjs';
 
     const imageInput = document.getElementById('imageInput');
@@ -94,7 +96,8 @@
     const resetProgressButton = document.getElementById('resetProgressButton');
     const matchDialog = document.getElementById('matchDialog');
     const matchOkButton = document.getElementById('matchOkButton');
-    const found = new Set();
+    const readings = new Map();
+    const alertedLabels = new Set();
     let scanStops = [];
     let listValid = false;
     let cameraActive = false;
@@ -107,7 +110,7 @@
       imageInput.disabled = stopList.readOnly = busy;
       cameraButton.disabled = processing || (!cameraActive && !listValid);
       cameraButton.textContent = cameraActive ? 'Stop Camera' : 'Open Live Camera';
-      resetProgressButton.disabled = busy || !found.size;
+      resetProgressButton.disabled = busy || !readings.size;
     }
 
     function renderProgress() {
@@ -117,18 +120,21 @@
       listError.textContent = parsed.error || '';
       progressList.replaceChildren();
       for (const stop of scanStops) {
-        const progress = stopProgress(stop, found);
+        const progress = stopProgress(stop, readings);
         const card = document.createElement('div');
         card.className = 'stop-card' + (progress.complete ? ' complete' : '');
         const heading = document.createElement('h3');
         heading.textContent = `Stop ${stop.number}: ${stop.address}`;
         const summary = document.createElement('p');
-        summary.textContent = `${progress.count}/${progress.total} packages found` + (progress.complete ? ' - Complete' : '');
+        summary.textContent = `${progress.count}/${progress.total} bags found; ${progress.listedFound}/${progress.listedTotal} listed IDs matched` +
+          (progress.complete ? ' - Complete' : '') +
+          (progress.conflict ? ' - Conflicting bag groups: check the list and reset progress.' : '');
         const packages = document.createElement('ul');
         for (const id of stop.packages) {
           const item = document.createElement('li');
-          item.textContent = id + (found.has(id) ? ' - Found' : ' - Not found');
-          if (found.has(id)) item.className = 'found';
+          const label = readings.get(id);
+          item.textContent = id + (label ? ` - ${label.code}: bag ${label.bagNumber}/${label.totalBags} - Found` : ' - Not found');
+          if (label) item.className = 'found';
           packages.append(item);
         }
         card.append(heading, summary, packages);
@@ -154,17 +160,36 @@
       onStatus(message) { cameraStatus.textContent = message; },
       onStop: dismissMatch,
       async onText(text) {
-        const match = findNextPackage(text, scanStops, found);
-        if (!match) return;
-        found.add(match.packageId);
-        renderProgress();
-        const progress = stopProgress(match.stop, found);
-        document.getElementById('matchStopNumber').textContent = String(match.stop.number);
-        document.getElementById('matchCount').textContent = `Package ${progress.count}/${progress.total}`;
-        document.getElementById('matchPackageId').textContent = match.packageId;
-        document.getElementById('matchAddress').textContent = match.stop.address;
-        document.getElementById('matchComplete').textContent = progress.complete ? 'All packages for this stop found!' : '';
-        cameraStatus.textContent = 'Match found. Scanning paused until you tap OK.';
+        const match = inspectPackageLabel(text, scanStops, readings);
+        if (match.kind === 'reading') {
+          cameraStatus.textContent = 'Reading label... Keep the four-character code and bag n of m text in view.';
+          return;
+        }
+        if (match.kind === 'duplicate') return;
+        const noticeKey = JSON.stringify([match.kind, match.code, match.bagNumber, match.totalBags, match.message]);
+        if (match.kind === 'check' && alertedLabels.has(noticeKey)) return;
+        const matched = match.kind === 'match';
+        document.getElementById('matchTitle').textContent = matched ? 'Package found at stop' : 'Check this package';
+        document.getElementById('matchStopNumber').hidden = !matched;
+        document.getElementById('matchStopNumber').textContent = matched ? String(match.stop.number) : '';
+        document.getElementById('matchBagPosition').textContent = match.bagNumber
+          ? `Label: bag ${match.bagNumber} of ${match.totalBags}` : '';
+        document.getElementById('matchPackageId').textContent = matched ? `${match.code} - ${match.packageId}` : match.code;
+        document.getElementById('matchAddress').textContent = matched ? match.stop.address : 'Not assigned to any stop.';
+        if (matched) {
+          readings.set(match.packageId, { code: match.code, bagNumber: match.bagNumber, totalBags: match.totalBags });
+          renderProgress();
+          const progress = stopProgress(match.stop, readings);
+          document.getElementById('matchCount').textContent = `Found ${progress.count}/${progress.total} bags`;
+          document.getElementById('matchComplete').textContent = progress.complete
+            ? 'All bags and listed packages for this stop found!'
+            : `${progress.listedFound}/${progress.listedTotal} listed IDs matched. This stop is not complete yet.`;
+        } else {
+          alertedLabels.add(noticeKey);
+          document.getElementById('matchCount').textContent = 'Check package';
+          document.getElementById('matchComplete').textContent = match.message;
+        }
+        cameraStatus.textContent = 'Scanning paused until you tap OK.';
         await new Promise(resolve => {
           acknowledgeMatch = resolve;
           matchDialog.showModal();
@@ -177,17 +202,21 @@
         camera.stop();
       } else {
         renderProgress();
-        if (listValid) camera.start();
+        if (listValid) {
+          alertedLabels.clear();
+          camera.start();
+        }
       }
     });
     matchDialog.addEventListener('cancel', event => event.preventDefault());
     matchOkButton.addEventListener('click', () => {
-      cameraStatus.textContent = 'Scanning full package IDs... Hold the printed ID steady and in focus.';
+      cameraStatus.textContent = 'Scanning label codes and bag counts... Show one label at a time.';
       dismissMatch();
     });
     resetProgressButton.addEventListener('click', () => {
       if (!confirm('Reset all found-package progress? The stop list will be kept.')) return;
-      found.clear();
+      readings.clear();
+      alertedLabels.clear();
       renderProgress();
       cameraStatus.textContent = 'Found-package progress reset.';
     });
@@ -256,7 +285,8 @@
     clearButton.addEventListener('click', () => {
       if (!confirm('Clear all stops and packages from this tab?')) return;
       stopList.value = '';
-      found.clear();
+      readings.clear();
+      alertedLabels.clear();
       renderProgress();
       statusMessage.textContent = 'List cleared. Scan a photo or type your stops below.';
     });
