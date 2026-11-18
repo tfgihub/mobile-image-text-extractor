@@ -45,7 +45,7 @@ test('matched popup contains only the NEW badge, stop, code, progress and contro
   await expect(app.dialog).toHaveAccessibleName('Stop 7');
   await expect(app.dialog).not.toContainText('Seen before');
   await expect(page.locator('#matchCount')).toHaveText('1 bag of 2 bags');
-  await app.acknowledge();
+  await page.locator('#matchOkButton').click();
   await expect(app.cards.first()).toContainText('1/2 bags scanned');
   const resumed = await page.evaluate(() => __appTest.metrics.decodes);
   await page.evaluate(() => { __appTest.codes = ['P79Q']; });
@@ -112,7 +112,7 @@ test('appearance survives Rescan, camera restart and step changes; Reset works w
   await expect(app.cards.first()).toContainText('0/2 bags scanned');
 });
 
-for (const method of ['Clear', 'empty editor', 'reload']) {
+for (const method of ['Clear', 'empty editor']) {
   test(`${method} starts a new sorting run without saved matches`, async ({ app, page }) => {
     await app.open();
     await app.scan('P79Q');
@@ -120,19 +120,16 @@ for (const method of ['Clear', 'empty editor', 'reload']) {
     await app.stop();
     await page.locator('#backButton').click();
     if (method === 'Clear') await app.confirmDialog('#clearButton');
-    else if (method === 'empty editor') await app.edit('');
-    else await page.reload();
+    else await app.edit('');
     await expect(page.locator('#stopList')).toHaveValue('');
     await expect(page.locator('#nextButton')).toBeDisabled();
     await expect(page.locator('#resetProgressButton')).toBeDisabled();
-    if (method !== 'reload') {
-      await app.open();
-      await app.scan('P79Q');
-      await expect(page.locator('#matchNewBadge')).toBeVisible();
-      await expect(page.locator('#matchCount')).toHaveText('1 bag of 2 bags');
-      await app.acknowledge();
-      await app.stop();
-    }
+    await app.open();
+    await app.scan('P79Q');
+    await expect(page.locator('#matchNewBadge')).toBeVisible();
+    await expect(page.locator('#matchCount')).toHaveText('1 bag of 2 bags');
+    await app.acknowledge();
+    await app.stop();
   });
 }
 

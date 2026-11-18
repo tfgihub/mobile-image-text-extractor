@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "npm run test:unit && npm run test:integration",
-    "test:unit": "node --test stops.test.mjs packages.test.mjs live-camera.test.mjs barcode.test.mjs playwright-config.test.mjs",
+    "test:unit": "node --test stops.test.mjs packages.test.mjs live-camera.test.mjs barcode.test.mjs playwright-config.test.mjs saved-run.test.mjs",
     "test:integration": "playwright test"
   },
   "devDependencies": {

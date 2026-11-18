@@ -1,3 +1,5 @@
+import { samePackage } from './identity.mjs?v=saved8';
+
 const streetType = '(?:STREET|ST|AVENUE|AVE|ROAD|RD|PLACE|PL|DRIVE|DR|COURT|CT|WAY|LANE|LN|BOULEVARD|BLVD|CIRCLE|CIR|TERRACE|TER|PARKWAY|PKWY|HIGHWAY|HWY|TRAIL|TRL|LOOP)';
 const addressPattern = new RegExp(
   '\\b\\d+[A-Za-z]?(?:-\\d+)?\\s+(?:[A-Za-z0-9.\\x27-]+\\s+){1,8}' + streetType + '\\b\\.?[^\\n]*',
@@ -10,18 +12,12 @@ export function addressKey(address) {
   return address.trim().replace(/\s+/g, ' ').replace(/[.,]/g, '').toUpperCase();
 }
 
-function samePackage(left, right) {
-  if (left === right) return true;
-  return Math.min(left.length, right.length) === 4 &&
-    left.slice(-4).toUpperCase() === right.slice(-4).toUpperCase();
-}
-
 export function mergeStops(existing, incoming, warnings = []) {
   const merged = [];
   for (const stop of [...existing, ...incoming]) {
     let target = merged.find(item => addressKey(item.address) === addressKey(stop.address));
     const isNew = !target;
-    if (!target) target = { address: stop.address.trim(), packages: [] };
+    if (!target) target = { ...stop, address: stop.address.trim(), packages: [] };
     for (const rawId of stop.packages) {
       const id = /^[A-Za-z0-9]{4}$/.test(rawId) ? rawId.toUpperCase() : rawId;
       const owner = merged.find(item => item.packages.some(saved => samePackage(saved, id)));
@@ -108,8 +104,11 @@ export function parseStops(text) {
     }
 
     const shortId = line.match(/^[^A-Za-z0-9]*([A-Z0-9]{4})[^A-Za-z0-9]*$/);
-    if (packageRows && shortId && !/^(?:SCAN|BAGS|CART|STOP|NAME|TIME|FROM|SHIP)$/.test(shortId[1])) {
-      addPackage(shortId[1]);
+    if (packageRows && shortId) {
+      if (awaitingPackage || /\d/.test(shortId[1])) addPackage(shortId[1]);
+      else if (!/^(?:SCAN|BAGS|CART|STOP|NAME|TIME|FROM|SHIP|NEXT|DONE|EDIT|VIEW|BACK|HELP|INFO|NOTE|SAVE|EXIT)$/.test(shortId[1])) {
+        warnings.push(`Unlabelled text "${shortId[1]}" was not added as a package ID. Check the screenshot and enter it manually if it is a package.`);
+      }
       awaitingPackage = false;
       continue;
     }
@@ -137,23 +136,34 @@ export function parseStops(text) {
 }
 
 export function formatStops(stops) {
-  return stops.map((stop, index) =>
-    `${index + 1}. ${stop.address}\n` +
-    stop.packages.map(id => `   - ${id}`).join('\n')
-  ).join('\n\n');
+  let next = Math.max(0, ...stops.map(stop => stop.number || 0)) + 1;
+  return stops.map(stop => {
+    const number = stop.number ?? next++;
+    if (!Number.isSafeInteger(number) || number < 1) throw new Error('Stop numbers must be positive safe whole numbers.');
+    return `${number}. ${stop.address}\n` + stop.packages.map(id => `   - ${id}`).join('\n');
+  }).join('\n\n');
 }
 
-export function readStopList(text) {
+export function readStopList(text, preserveNumbers = false) {
   const stops = [];
   for (const block of text.trim().split(/\n\s*\n/)) {
     if (!block.trim()) continue;
     const [heading, ...lines] = block.split(/\r?\n/).map(line => line.trim());
     const address = heading.replace(/^\d+[.)]\s+/, '').replace(/\s+\(\d+ packages?\)$/, '');
     const packages = lines.filter(line => !/^[-*]\s*$/.test(line)).map(line => line.replace(/^[-*]\s+/, ''));
-    if (!address || /^[-*]\s/.test(address) || packages.some(id => !/^[A-Za-z0-9_-]+$/.test(id))) {
+    if (!address || /^[-*]\s/.test(address) || packages.some(id => !/^[A-Za-z0-9_-]{4,}$/.test(id))) {
       return { stops: [], error: 'Your existing text was kept as-is. New stops were appended without merging. Use an address followed by one package ID per line, with a blank line between stops.' };
     }
-    stops.push({ address, packages });
+    const stop = { address, packages };
+    if (preserveNumbers) {
+      const explicit = heading.match(/^(\d+)[.)]\s+/);
+      stop.number = explicit ? Number(explicit[1]) : stops.length + 1;
+    }
+    stops.push(stop);
+  }
+  if (preserveNumbers && (stops.some(stop => !Number.isSafeInteger(stop.number) || stop.number < 1) ||
+      new Set(stops.map(stop => stop.number)).size !== stops.length)) {
+    return { stops: [], error: 'Stop numbers must be unique positive whole numbers.' };
   }
   return { stops, error: null };
 }
@@ -164,7 +174,7 @@ export function updateStopList(text, scannedText) {
   if (!scanned.stops.length) {
     return { text, warnings: scanned.warnings };
   }
-  const existing = readStopList(text);
+  const existing = readStopList(text, true);
   if (existing.error) {
     return {
       text,

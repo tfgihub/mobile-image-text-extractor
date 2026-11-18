@@ -63,8 +63,10 @@ test('Stop during a pending permission request releases the late stream without 
   await page.locator('#cameraButton').click();
   await expect.poll(() => page.evaluate(() => typeof __appTest.resolvePermission)).toBe('function');
   await page.locator('#cameraButton').click();
-  await page.evaluate(() => __appTest.resolvePermission());
   await expect(page.locator('#cameraButton')).toHaveText('Open Live Camera');
+  await expect(page.locator('#backButton')).toBeEnabled();
+  await page.evaluate(() => __appTest.resolvePermission());
+  await expect.poll(() => page.evaluate(() => __appTest.streams.length)).toBe(1);
   expect(await page.evaluate(() => __appTest.metrics.decodes)).toBe(0);
   expect(await page.evaluate(() => __appTest.streams[0].getTracks()[0].readyState)).toBe('ended');
   await expect(page.locator('#backButton')).toBeEnabled();
@@ -190,12 +192,14 @@ for (const width of [320, 390]) {
   }
 }
 
-test('theme follows the device, explicit choice survives reload, while list and progress do not', async ({ app, page }) => {
+test('theme follows the device and explicit choice survives clearing a saved run and reloading', async ({ app, page }) => {
   await app.edit(routeList);
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(page.locator('#stopList')).toHaveValue('');
+  await expect(page.locator('#restoreDialog')).toBeVisible();
+  await page.locator('#clearSavedRunButton').click();
   await page.locator('#themeButton').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.reload();

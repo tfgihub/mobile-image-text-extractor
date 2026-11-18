@@ -47,10 +47,10 @@ test('merges repeated addresses without mutating input or changing package ID ca
     { address: '100  EXAMPLE ST', packages: ['spCaseAAA', 'spcaseAAA'] },
     { address: '200 Example Way', packages: ['spOther12', 'spOther12'] }
   ]);
-  assert.deepEqual(merged[0].packages, ['spCaseAAA', 'spcaseAAA']);
+  assert.deepEqual(merged[0].packages, ['spCaseAAA']);
   assert.equal(merged[1].packages.length, 1);
   assert.deepEqual(existing[0].packages, ['spCaseAAA']);
-  assert.equal(formatStops(merged), '1. 100 Example St.\n   - spCaseAAA\n   - spcaseAAA\n\n2. 200 Example Way\n   - spOther12');
+  assert.equal(formatStops(merged), '1. 100 Example St.\n   - spCaseAAA\n\n2. 200 Example Way\n   - spOther12');
 });
 
 test('merges repeated stops within one OCR result', () => {
@@ -136,4 +136,26 @@ test('short and full forms of the same package at the same stop count once', () 
     [{ address: 'Example #1234', packages: ['ab12'] }],
     [{ address: 'Example #1234', packages: ['trackingAB12', 'AB12'] }]
   ), [{ address: 'Example #1234', packages: ['trackingAB12'] }]);
+});
+
+test('reimporting preserves explicit route numbers and appends after the last route number', () => {
+  const original = '7. Example #1001\n - AB12\n\n12. Other #1002\n - CD34';
+  const duplicate = updateStopList(original, 'Example #1001\nPackage ID\nAB12');
+  assert.deepEqual(readStopList(duplicate.text, true).stops.map(stop => stop.number), [7, 12]);
+  const appended = updateStopList(duplicate.text, 'New Person #1003\nPackage ID\nEF56');
+  assert.deepEqual(readStopList(appended.text, true).stops.map(stop => stop.number), [7, 12, 13]);
+});
+
+test('an import never silently repairs or renumbers invalid duplicate route numbers', () => {
+  const original = '7. Example #1001\n - AB12\n\n7. Other #1002\n - CD34';
+  const result = updateStopList(original, 'New Person #1003\nPackage ID\nEF56');
+  assert.equal(result.text, original);
+  assert.match(result.warnings.join(' '), /Nothing was added/);
+});
+
+test('unlabelled alphabetic screen words are not invented as packages, but labelled IDs remain supported', () => {
+  const result = parseStops('Example #1001\nPackage ID\nAB12\nNEXT\nDONE\nALPH\nPackage ID\nHPQK\nPackage ID NEXT');
+  assert.deepEqual(result.stops[0].packages, ['AB12', 'HPQK', 'NEXT']);
+  assert.match(result.warnings.join(' '), /Unlabelled text "ALPH"/);
+  assert.ok(readStopList('1. Example\n - AB1').error);
 });

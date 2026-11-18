@@ -1,14 +1,23 @@
-import { prepareBarcodeReader, decodeBarcodeFrame } from './barcode.mjs?v=badge7';
+import { prepareBarcodeReader, decodeBarcodeFrame } from './barcode.mjs?v=saved8';
 
-export function createLiveCamera({ video, onCodes, onStatus, onActive, onStop, onTiming = () => {} }) {
+export function createLiveCamera({ video, onCodes, onStatus, onActive, onStop, onTiming = () => {}, onEmpty = () => {} }) {
   let session;
+
+  function release(current) {
+    for (const track of current.stream?.getTracks() || []) track.stop();
+    if (session !== current) return;
+    video.pause();
+    video.srcObject = null;
+    session = null;
+    onStop();
+    onActive(false);
+  }
 
   function stop(message = 'Camera stopped. You can edit the list or open the camera again.') {
     if (!session || session.cancelled) return;
-    session.cancelled = true;
-    for (const track of session.stream?.getTracks() || []) track.stop();
-    video.pause();
-    onStop();
+    const current = session;
+    current.cancelled = true;
+    release(current);
     onStatus(message);
   }
 
@@ -53,6 +62,7 @@ export function createLiveCamera({ video, onCodes, onStatus, onActive, onStop, o
           if (current.cancelled) break;
           onTiming(Math.round(performance.now() - start));
           if (codes.length) await onCodes(codes);
+          else onEmpty();
         }
         if (!current.cancelled) await new Promise(resolve => setTimeout(resolve, 100));
       }
@@ -63,12 +73,7 @@ export function createLiveCamera({ video, onCodes, onStatus, onActive, onStop, o
         onStatus('Live camera error: ' + detail + ' Allow camera access in your browser settings, then retry. Your list and progress are kept.');
       }
     } finally {
-      for (const track of current.stream?.getTracks() || []) track.stop();
-      video.pause();
-      video.srcObject = null;
-      onStop();
-      session = null;
-      onActive(false);
+      release(current);
     }
   }
 

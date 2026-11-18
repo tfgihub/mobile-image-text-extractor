@@ -21,7 +21,7 @@
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.2/dist/iife/reader/index.js"></script>
-  <script type="module" src="./app.mjs?v=badge7"></script>
+  <script type="module" src="./app.mjs?v=saved8"></script>
   <style>
     :root {
       color-scheme: light;
@@ -101,7 +101,12 @@
     #matchCode { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 28px; font-weight: 600; margin: 8px 0 16px; letter-spacing: 2px; overflow-wrap: anywhere; }
     #matchCount { font-size: 22px; font-weight: 600; margin: 0 0 24px; color: var(--muted); }
     #matchMessage { color: var(--error); font-size: 13px; }
-    #rescanButton { margin-top: 10px; }
+    .completion-notice { padding: 12px; margin: 16px 0; border: 1px solid var(--complete-border); border-radius: 12px; color: var(--success); background: var(--complete); font-size: 16px; font-weight: 700; }
+    #saveStatus { text-align: center; margin: 8px 12px 0; }
+    #saveStatus.storage-error { color: var(--error); }
+    #restoreDialog h2 { font-size: 20px; color: var(--text); }
+    #restoreMessage { font-size: 14px; color: var(--muted); }
+    #rescanButton, #clearSavedRunButton { margin-top: 10px; }
     @media (max-width: 360px) {
       section { padding: 16px; }
       .brand-mark { width: 26px; height: 26px; }
@@ -148,19 +153,28 @@
       <video id="cameraPreview" autoplay muted playsinline hidden aria-label="Live package camera"></video>
       <p id="cameraStatus" role="status" aria-live="polite">Camera is off.</p>
       <p id="decodeTiming" class="note"></p>
+      <p id="completionStatus" class="completion-notice" role="status" hidden>All packages scanned</p>
       <div id="stopProgress"></div>
       <button id="resetProgressButton" type="button" class="secondary" disabled>Reset Found Packages</button>
       <button id="backButton" type="button" class="secondary">Back: Edit List</button>
     </section>
-    <p class="note" id="privacy">Processed on your device. Copy your list before refreshing.</p>
+    <p class="note" id="privacy">Images never leave this browser.</p>
+    <p class="note" id="saveStatus" role="status" aria-live="polite"></p>
   </main>
-  <dialog id="matchDialog" aria-labelledby="matchTitle" aria-describedby="matchCode matchCount matchMessage">
+  <dialog id="restoreDialog" aria-labelledby="restoreTitle" aria-describedby="restoreMessage">
+    <h2 id="restoreTitle">Continue previous run?</h2>
+    <p id="restoreMessage">Your package list, confirmed scans and NEW-stop history are saved on this device.</p>
+    <button id="resumeRunButton" type="button" autofocus>Continue previous run</button>
+    <button id="clearSavedRunButton" type="button" class="secondary">Clear records and start fresh</button>
+  </dialog>
+  <dialog id="matchDialog" aria-labelledby="matchTitle" aria-describedby="matchCode matchCount matchMessage matchCompleteMessage">
     <h2 id="matchTitle" tabindex="-1">Package found at stop</h2>
     <p id="matchNewBadge" hidden>NEW</p>
     <span id="matchStopNumber"></span>
     <p id="matchCode"></p>
     <p id="matchCount" aria-live="polite"></p>
     <p id="matchMessage" role="status"></p>
+    <p id="matchCompleteMessage" class="completion-notice" role="status" hidden></p>
     <button id="matchOkButton" type="button" disabled>OK</button>
     <button id="rescanButton" type="button" class="secondary" aria-label="Rescan without counting">Rescan</button>
   </dialog>

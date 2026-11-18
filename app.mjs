@@ -1,6 +1,8 @@
-import { readStopList, updateStopList } from './stops.mjs?v=badge7';
-import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice } from './packages.mjs?v=badge7';
-import { createLiveCamera } from './live-camera.mjs?v=badge7';
+import { readStopList, updateStopList } from './stops.mjs?v=saved8';
+import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice, isRunComplete, movedConfirmedPackage } from './packages.mjs?v=saved8';
+import { createLiveCamera } from './live-camera.mjs?v=saved8';
+import { packageKey } from './identity.mjs?v=saved8';
+import { runStorageKey, serializeRun, parseSavedRun } from './saved-run.mjs?v=saved8';
 
 const byId = id => document.getElementById(id);
 const stopList = byId('stopList');
@@ -8,6 +10,7 @@ const imageInput = byId('imageInput');
 const status = byId('status');
 const cameraStatus = byId('cameraStatus');
 const dialog = byId('matchDialog');
+const restoreDialog = byId('restoreDialog');
 const themeButton = byId('themeButton');
 const readings = new Set();
 const alerted = new Set();
@@ -18,6 +21,54 @@ let processing = false;
 let cameraActive = false;
 let pending;
 let releaseNotice;
+let acceptedText = '';
+let acceptedStops = [];
+let assignmentError = '';
+let lastPresentedId = null;
+let emptySince = null;
+let awaitingRestore = true;
+let savedRun = null;
+let lastStoredValue = null;
+let storageConflict = false;
+let persistenceDisabled = false;
+
+function storageStatus(message, failed = false) {
+  const node = byId('saveStatus');
+  if (node.textContent !== message) node.textContent = message;
+  node.classList.toggle('storage-error', failed);
+}
+
+function savedRecordsChanged() {
+  if (storageConflict) return;
+  storageConflict = true;
+  camera.stop('Camera stopped because saved records changed in another tab.');
+  storageStatus('Another tab changed the saved records. Copy any unsaved edits, then reload this tab before continuing.', true);
+  if (restoreDialog.open) {
+    byId('restoreMessage').textContent = 'Another tab changed the saved records. Reload this tab to use the latest records.';
+    byId('resumeRunButton').disabled = byId('clearSavedRunButton').disabled = true;
+  }
+  updateButtons();
+}
+
+function persistRun() {
+  if (awaitingRestore || persistenceDisabled || storageConflict) return;
+  try {
+    if (localStorage.getItem(runStorageKey) !== lastStoredValue) {
+      savedRecordsChanged();
+      return;
+    }
+    const raw = stopList.value.trim() ? serializeRun(stopList.value, readings, shownStops, acceptedText) : null;
+    if (raw !== lastStoredValue) {
+      if (raw === null) localStorage.removeItem(runStorageKey);
+      else localStorage.setItem(runStorageKey, raw);
+      lastStoredValue = raw;
+    }
+    storageStatus(raw === null ? 'No saved package records.' : 'Saved on this device.');
+  } catch (error) {
+    console.error('Package records could not be saved:', error);
+    storageStatus('Could not save or clear records on this device. Changes are kept only in this page; old records may return after reopening. Copy your list before closing.', true);
+  }
+}
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
@@ -40,23 +91,40 @@ themeButton.addEventListener('click', () => {
 });
 
 function updateButtons() {
-  const busy = processing || cameraActive;
+  const busy = processing || cameraActive || awaitingRestore || storageConflict;
   imageInput.disabled = stopList.readOnly = busy;
-  byId('copyButton').disabled = byId('clearButton').disabled = busy || !stopList.value.trim();
-  byId('nextButton').disabled = byId('step2Button').disabled = processing || !valid;
+  byId('copyButton').disabled = processing || cameraActive || awaitingRestore || !stopList.value.trim();
+  byId('clearButton').disabled = busy || !stopList.value.trim();
+  byId('nextButton').disabled = byId('step2Button').disabled = processing || awaitingRestore || storageConflict || !valid;
   byId('step1Button').disabled = byId('backButton').disabled = busy;
-  byId('cameraButton').disabled = processing || (!cameraActive && !valid);
+  byId('cameraButton').disabled = processing || awaitingRestore || storageConflict || (!cameraActive && !valid);
   byId('cameraButton').textContent = cameraActive ? 'Stop Camera' : 'Open Live Camera';
   byId('resetProgressButton').disabled = busy || (!readings.size && !shownStops.size);
 }
 
 function renderProgress() {
-  const parsed = getScanStops(stopList.value);
+  let parsed = getScanStops(stopList.value);
+  const moved = movedConfirmedPackage(acceptedStops, parsed.stops, readings);
+  if (moved) {
+    stopList.value = acceptedText;
+    assignmentError = `Package ${moved.id} is confirmed at stop ${moved.from} and cannot move to stop ${moved.to}. Reset found-package progress first if the assignment needs correction. Your previous list was kept.`;
+    parsed = getScanStops(stopList.value);
+  }
   stops = parsed.stops;
   valid = !parsed.error;
-  if (stops.length || !stopList.value.trim()) pruneReadings(stops, readings);
-  if (!stopList.value.trim()) shownStops.clear();
-  byId('listError').textContent = stopList.value.trim() ? parsed.error || '' : '';
+  if (stops.length || !stopList.value.trim()) {
+    const ambiguous = pruneReadings(stops, readings);
+    if (ambiguous.length) assignmentError = `Saved confirmation for ${ambiguous.join(', ')} matches multiple package IDs. It was cleared; scan these packages again.`;
+  }
+  if (!stopList.value.trim()) {
+    shownStops.clear();
+    assignmentError = '';
+  }
+  if (stops.length || !stopList.value.trim()) {
+    acceptedText = stopList.value;
+    acceptedStops = stops;
+  }
+  byId('listError').textContent = assignmentError || (stopList.value.trim() ? parsed.error || '' : '');
   byId('stopProgress').replaceChildren();
   for (const stop of stops) {
     const progress = stopProgress(stop, readings);
@@ -71,7 +139,7 @@ function renderProgress() {
     const list = document.createElement('ul');
     for (const id of stop.packages) {
       const item = document.createElement('li');
-      const found = readings.has(id);
+      const found = readings.has(packageKey(id));
       item.textContent = id + (found ? ' - Found' : ' - Not found');
       if (found) item.className = 'found';
       list.append(item);
@@ -79,11 +147,13 @@ function renderProgress() {
     card.append(heading, summary, list);
     byId('stopProgress').append(card);
   }
+  byId('completionStatus').hidden = !isRunComplete(stops, readings);
   updateButtons();
+  persistRun();
 }
 
 function showStep(number) {
-  if (processing || cameraActive) return;
+  if (processing || cameraActive || awaitingRestore || storageConflict) return;
   renderProgress();
   if (number === 2 && !valid) return;
   byId('uploadStep').hidden = number !== 1;
@@ -113,18 +183,27 @@ const camera = createLiveCamera({
   },
   onStatus(message) { cameraStatus.textContent = message; },
   onTiming(milliseconds) { byId('decodeTiming').textContent = `Last barcode decode: ${milliseconds} ms (this device)`; },
-  onStop: dismissNotice,
+  onStop() {
+    lastPresentedId = null;
+    emptySince = null;
+    dismissNotice();
+  },
+  onEmpty() {
+    if (emptySince === null) emptySince = performance.now();
+    if (performance.now() - emptySince >= 500) lastPresentedId = null;
+  },
   async onCodes(codes) {
+    emptySince = null;
     const result = codes.length === 1
       ? matchBarcode(codes[0], stops, readings)
       : { kind: 'check', code: 'Multiple barcodes', message: 'Show only one package label. Nothing was assigned.' };
-    if (result.kind === 'duplicate') return;
+    if (result.kind === 'duplicate' && lastPresentedId === packageKey(result.packageId)) return;
     const key = JSON.stringify(codes);
     if (result.kind === 'check' && alerted.has(key)) return;
     if (result.kind === 'check') alerted.add(key);
     pending = result;
-    const matched = result.kind === 'candidate';
-    const notice = matched ? getPackageNotice(result.stop, readings, shownStops) : null;
+    const matched = result.kind === 'candidate' || result.kind === 'duplicate';
+    const notice = matched ? getPackageNotice(result.stop, readings, shownStops, result.packageId) : null;
     byId('matchTitle').textContent = matched ? `${notice.isNew ? 'New stop' : 'Stop'} ${result.stop.number}` : 'Check this package';
     byId('matchTitle').classList.toggle('sr-only', matched);
     byId('matchNewBadge').hidden = !matched || !notice.isNew;
@@ -132,14 +211,25 @@ const camera = createLiveCamera({
     byId('matchStopNumber').textContent = matched ? String(result.stop.number) : '';
     byId('matchCode').textContent = result.code;
     byId('matchCount').textContent = matched ? notice.countLabel : '';
+    const finishesRun = matched && isRunComplete(stops, readings, result.packageId);
+    byId('matchCompleteMessage').hidden = !finishesRun;
+    byId('matchCompleteMessage').textContent = finishesRun
+      ? (isRunComplete(stops, readings) ? 'All packages scanned' : 'Last package - OK completes the run')
+      : '';
     byId('matchMessage').textContent = matched ? '' : result.message;
     byId('matchOkButton').textContent = 'OK';
     byId('matchOkButton').setAttribute('aria-label', matched ? 'Confirm package and resume scanning' : 'Resume scanning');
     byId('matchOkButton').disabled = false;
-    cameraStatus.textContent = 'Barcode decoded. Scanning paused; nothing is counted until confirmation.';
+    cameraStatus.textContent = result.kind === 'duplicate'
+      ? 'This package is already counted. Scanning paused; OK resumes without changing progress.'
+      : 'Barcode decoded. Scanning paused; nothing is counted until confirmation.';
     const acknowledgement = new Promise(resolve => { releaseNotice = resolve; });
     dialog.showModal();
-    if (matched) shownStops.add(result.stop.number);
+    if (matched) {
+      shownStops.add(result.stop.number);
+      lastPresentedId = packageKey(result.packageId);
+      persistRun();
+    }
     byId('matchTitle').focus({ preventScroll: true });
     await acknowledgement;
   }
@@ -151,25 +241,28 @@ byId('cameraButton').addEventListener('click', () => {
   if (cameraActive) camera.stop();
   else {
     renderProgress();
-    if (valid) { alerted.clear(); camera.start(); }
+    if (valid && !storageConflict && !awaitingRestore) { alerted.clear(); camera.start(); }
   }
 });
 dialog.addEventListener('cancel', event => event.preventDefault());
 byId('rescanButton').addEventListener('click', () => {
-  cameraStatus.textContent = 'Rescanning. This package was not counted.';
+  cameraStatus.textContent = pending?.kind === 'duplicate'
+    ? 'Rescanning. This package was already counted; progress is unchanged.'
+    : 'Rescanning. This package was not counted.';
   dismissNotice();
 });
 byId('matchOkButton').addEventListener('click', () => {
   if (!pending) return;
-  if (pending.kind === 'candidate') {
+  if (pending.kind === 'candidate' || pending.kind === 'duplicate') {
     const result = matchBarcode(pending.barcode, stops, readings);
     if (result.kind === 'check') {
       cameraStatus.textContent = result.message;
       dismissNotice();
       return;
     }
-    if (result.kind === 'candidate') readings.add(result.packageId);
+    if (result.kind === 'candidate') readings.add(packageKey(result.packageId));
     renderProgress();
+    if (storageConflict) return;
   }
   cameraStatus.textContent = 'Scanning Data Matrix / QR codes... Show one whole package label.';
   dismissNotice();
@@ -185,7 +278,14 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) camera.stop('Camera stopped in the background. Open it again to resume.');
 });
 window.addEventListener('pagehide', () => camera.stop());
-stopList.addEventListener('input', renderProgress);
+window.addEventListener('storage', event => {
+  if ((event.key === runStorageKey && event.newValue !== lastStoredValue) ||
+      (event.key === null && lastStoredValue !== null)) savedRecordsChanged();
+});
+stopList.addEventListener('input', () => {
+  if (stopList.value !== acceptedText) assignmentError = '';
+  renderProgress();
+});
 stopList.addEventListener('change', renderProgress);
 
 function importMessage(text) {
@@ -196,7 +296,7 @@ function importMessage(text) {
 
 imageInput.addEventListener('change', async () => {
   const files = [...imageInput.files];
-  if (!files.length || processing || cameraActive) return;
+  if (!files.length || processing || cameraActive || awaitingRestore || storageConflict) return;
   if (readStopList(stopList.value).error) {
     status.textContent = 'Fix the list format before importing more screenshots. Your list was not changed.';
     imageInput.value = '';
@@ -213,6 +313,10 @@ imageInput.addEventListener('change', async () => {
     worker = await Tesseract.createWorker('eng');
     await worker.setParameters({ tessedit_pageseg_mode: '11' });
     for (const [index, file] of files.entries()) {
+      if (storageConflict) {
+        importMessage('Import stopped because another tab changed the saved records. Copy any unsaved edits, then reload.');
+        break;
+      }
       status.textContent = `Reading screenshot ${index + 1}/${files.length}: ${file.name}`;
       let bitmap;
       try {
@@ -226,6 +330,10 @@ imageInput.addEventListener('change', async () => {
         if (!context) throw new Error('Could not prepare the screenshot.');
         context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
         const result = await worker.recognize(canvas);
+        if (storageConflict) {
+          importMessage('Import stopped because another tab changed the saved records. Copy any unsaved edits, then reload.');
+          break;
+        }
         const updated = updateStopList(stopList.value, result.data.text);
         stopList.value = updated.text;
         succeeded++;
@@ -280,4 +388,66 @@ byId('copyButton').addEventListener('click', async () => {
     status.textContent = 'Could not copy automatically. Touch and hold the selected list and choose Copy.';
   }
 });
-renderProgress();
+
+restoreDialog.addEventListener('cancel', event => event.preventDefault());
+byId('resumeRunButton').addEventListener('click', () => {
+  if (!savedRun || storageConflict) return;
+  stopList.value = savedRun.list;
+  acceptedText = savedRun.acceptedList;
+  acceptedStops = getScanStops(acceptedText).stops;
+  for (const id of savedRun.readings) readings.add(packageKey(id));
+  for (const number of savedRun.shownStops) shownStops.add(number);
+  savedRun = null;
+  awaitingRestore = false;
+  restoreDialog.close();
+  showStep(2);
+});
+byId('clearSavedRunButton').addEventListener('click', () => {
+  if (storageConflict) return;
+  try {
+    if (localStorage.getItem(runStorageKey) !== lastStoredValue) {
+      savedRecordsChanged();
+      return;
+    }
+    localStorage.removeItem(runStorageKey);
+  } catch (error) {
+    console.error('Saved package records could not be cleared:', error);
+    byId('restoreMessage').textContent = 'Could not clear the saved records. They have been kept. Allow browser storage and try again.';
+    return;
+  }
+  savedRun = null;
+  lastStoredValue = null;
+  awaitingRestore = false;
+  restoreDialog.close();
+  renderProgress();
+});
+
+function initializeSavedRun() {
+  try {
+    lastStoredValue = localStorage.getItem(runStorageKey);
+  } catch (error) {
+    console.error('Saved package records could not be read:', error);
+    persistenceDisabled = true;
+    awaitingRestore = false;
+    storageStatus('Browser storage is unavailable. Records are kept only in this page. Copy your list before closing.', true);
+    renderProgress();
+    return;
+  }
+  if (lastStoredValue !== null) {
+    try {
+      savedRun = parseSavedRun(lastStoredValue);
+    } catch (error) {
+      console.error('Saved package records are invalid:', error);
+      byId('restoreTitle').textContent = 'Saved records need attention';
+      byId('restoreMessage').textContent = 'Saved records could not be loaded. They have not been changed. Clear them to start a new run.';
+      byId('resumeRunButton').disabled = true;
+    }
+    renderProgress();
+    restoreDialog.showModal();
+  } else {
+    awaitingRestore = false;
+    renderProgress();
+  }
+}
+
+initializeSavedRun();

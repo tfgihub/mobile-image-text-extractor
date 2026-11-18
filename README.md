@@ -9,8 +9,8 @@ The compact layout keeps instructions out of the workflow and uses a short,
 scrollable package editor that can be resized vertically. The sun/moon button
 switches between white and black themes, including scanner cards and notices.
 The initial theme follows the device preference; an explicit choice is saved
-locally for future visits. Only the theme is saved, not the package list or
-scanning progress. If browser storage is unavailable, the theme still switches
+locally for future visits, separately from saved package records.
+If browser storage is unavailable, the theme still switches
 for the current page and a warning is logged.
 
 ## 1. Upload and check the package list
@@ -24,11 +24,14 @@ worker. The importer supports:
 
 Small screenshots are enlarged for OCR. Repeated customer references merge even
 when names are redacted; street stops merge ignoring case, spacing, commas, and
-periods. Identical IDs are not duplicated. Four-character codes are normalized
+periods. Identical IDs are deduplicated ignoring letter case. Four-character codes are normalized
 to uppercase, and short/full forms of the same ID at one stop count once.
 Conflicting assignments of the same package to different stops are reported and
 are not added a second time. Clipped package rows and IDs before a stop heading
 produce import notes rather than being silently assigned.
+Unlabelled alphabetic four-letter text is not guessed as a package: known screen
+words such as NEXT are ignored and other uncertain rows produce a review note.
+All-letter IDs following an explicit `Package ID` label remain supported.
 
 Review the one editable text box. Use a stop/customer heading followed by IDs,
 one per line, and leave a blank line between stops. Check OCR carefully: names,
@@ -57,7 +60,8 @@ substitutes Q/O/0 or guesses other characters.
 The camera does not run OCR or load an OCR worker. Once a known code is decoded,
 it pauses and immediately displays the large stop number, decoded package code,
 and **x bags of y bags** (with singular "bag" for one). Here, `x` is the number
-of unique confirmed packages for that stop plus this pending package; `y` is the
+of unique confirmed packages for that stop plus this pending package (unless it
+was already confirmed); `y` is the
 number of unique IDs in the current
 edited screenshot list. Nothing counts until **OK**. **Rescan**
 dismisses the notice without changing progress, and confirmed codes
@@ -70,16 +74,26 @@ day mode and a deep-blue pill in night mode. Both color pairs maintain at
 least 4.5:1 text contrast. Later popups omit the badge, without a "Seen before"
 label. Showing the popup marks the stop
 as appeared even when **Rescan** is selected. This history survives stopping
-and reopening the camera or changing steps. **Reset Found Packages**, **Clear**,
-an entirely cleared editor, or a page reload starts a new sorting run and
+and reopening the camera, changing steps, or continuing a saved run.
+**Reset Found Packages**, **Clear**, or an entirely cleared editor
 resets the new-stop markers. Reset is available even if a popup was shown
 without confirming any packages.
 
 A one-package stop displays **1 bag of 1 bag**. No customer name, duplicate ID,
-total caption, "Only package"/"Last package" label or instructions clutter a
-matched popup. Screen-reader names still identify new stops and stop numbers.
+total caption, or per-stop "Only package"/"Last package" label clutters a
+matched popup. The final unconfirmed package across the entire list adds
+**Last package - OK completes the run**. **Rescan** leaves it incomplete;
+only **OK** marks the run **All packages scanned**, without another dialog.
+Screen-reader names still identify new stops and stop numbers.
 Unknown/ambiguous barcode notices retain their warning explanations and never
 count packages. OK is still required before a matched stop can complete.
+
+An already confirmed package can show its existing-stop popup again, with
+unchanged counts and no additional stop. Holding that same label after OK does
+not immediately reopen it. Remove the code from view for at least about half a
+second, show a different matched package, or restart the camera to show it again.
+Brief blank-frame flicker does not rearm the same confirmed label. Repeating a
+package after the whole run is complete shows **All packages scanned**.
 
 **This is scanned progress, not the printed bag position.** Barcodes contain
 the package ID, not `n of m bags`. Printed label totals and positions are no
@@ -93,7 +107,8 @@ The same unknown reading is shown once per camera session to avoid a popup loop.
 Progress totals always come from the current list. Cards turn green after all
 listed IDs at that stop are confirmed, regardless of scan order. Explicit editor
 numbers such as `7.` are preserved for camera notices; otherwise list order is
-used. Screenshot imports number stops in their first-seen order.
+used. Screenshot imports preserve existing route numbers and append new stops
+after the highest existing number.
 
 Stop the camera to go back and edit/import more screenshots. Progress follows
 listed IDs across edits; deleted IDs lose their saved scans and must be scanned
@@ -103,9 +118,45 @@ with no packages display an explicit skipped message, never turn green, and do
 not block scanning other stops. At least one listed ID is required overall.
 The app rereads the editor when changing steps and opening the camera, so the
 camera list never relies on an earlier snapshot of the editor.
+IDs must contain at least four letters/digits or `_`/`-`.
+Equivalent case changes and short-to-full ID upgrades retain confirmation.
+If an old short confirmation becomes ambiguous between multiple distinct full
+IDs, it is cleared with an explicit review message rather than guessed; scan
+those packages again using their full codes.
+A confirmed package cannot change stop number, including through an ID alias
+or renumbering. Such an edit restores the previous accepted list and explains
+the problem. Correct the assignment before scanning, or explicitly reset
+found-package progress first.
 **Reset Found Packages** keeps the list; **Clear** clears both.
 Camera tracks are released on Stop, navigation away, or moving the
-page to the background. Returning requires opening the camera again.
+page to the background. Stop unlocks controls immediately, even while decoder
+loading or the browser permission request is pending. Late permission responses
+are discarded without disturbing a newly opened camera.
+Returning requires opening the camera again.
+
+## Saved runs
+
+The list, confirmed packages and NEW-stop history are automatically saved in
+this browser's local storage. On reopening or refreshing, choose **Continue
+previous run** or **Clear records and start fresh**. Continue restores progress
+without opening the camera. A pending popup saves its appearance history, never
+its unconfirmed package. A partially edited list is preserved too; fix its
+format before scanning. Clearing package records does not reset the theme.
+
+**Reset Found Packages** keeps the list but clears confirmations and NEW history.
+**Clear**, an entirely empty editor, or clearing records at startup removes the
+saved run. Storage failures are shown explicitly: changes may exist only in the
+current page and older records may return after reopening. Corrupt records are
+not overwritten automatically; startup requires an explicit clear.
+
+Use one active tab for sorting. If another tab changes or clears the run, the
+stale tab stops scanning and freezes editing instead of overwriting newer
+records. Copy any unsaved list, then reload that tab.
+
+Records stay on this browser/device, not in an account or across devices.
+Normal release URLs with different query strings share the same records.
+Clearing browser/site data, private browsing, or browser storage eviction can
+remove them. Keep a copied list as a backup.
 
 ## Privacy and limitations
 
@@ -113,8 +164,10 @@ All images, decoded IDs, OCR, and progress remain in the browser. Internet is
 required to download Tesseract.js 5.1.1 and ZXing-WASM 2.2.2 plus their engines
 from external CDNs. Images are never sent to those CDNs.
 
-The list and progress are not saved and will be lost on refresh/close. Copy the
-list before leaving. Camera and clipboard access require HTTPS (or localhost
+Saved records do not make the app fully offline: opening the page and downloading
+the OCR/barcode engines still require an internet connection. Browser caching
+alone is not guaranteed offline support; no offline/PWA mode is provided.
+Camera and clipboard access require HTTPS (or localhost
 for development) and browser permission.
 
 Barcode decoding is usually faster and more reliable than reading printed IDs,
@@ -167,12 +220,13 @@ No test hooks are shipped in the application modules.
 
 | Workflow | Regression coverage |
 | --- | --- |
-| Screenshot import | Real OCR, both screenshot formats, multiple/overlapping images, deduplicated stops and short/full IDs, edited-list merging, conflicts, orphan/clipped rows, empty/unrecognized results |
+| Screenshot import | Real OCR, both screenshot formats, multiple/overlapping images, preserved route numbers, deduplicated case/short/full IDs, progress migration, edited-list merging, conflicts, unlabelled screen words, orphan/clipped rows, empty/unrecognized results |
 | Import failures | Bad files, continuing after a failed image, worker startup/cleanup, disabled busy controls, invalid-editor preservation |
 | Barcode matching | Real QR/Data Matrix decoding, full/suffix and case-insensitive matches, exact-match priority, unknown/unsupported/ambiguous/multiple codes, no Q/0 guessing, duplicate suppression |
-| Notices and completion | Minimal accessible popup, separate NEW badge, per-stop history, Rescan/OK, paused decoder, scan-order counts, single/final packages, independent stop totals and completed cards |
-| Editing and reset | Cleared bullets, deletion/re-add, removing unscanned IDs/stops, empty stops/all-empty headings, current camera totals, reset without confirmations, Clear/empty editor/reload, cancelled confirmations |
-| Camera lifecycle | No camera OCR, operation without Tesseract, rear-camera constraints, locked controls, permission/decoder failures, late permission, Stop, background/pagehide and disconnection |
+| Notices and completion | Minimal accessible popup, separate NEW badge, per-stop history, Rescan/OK, held-label suppression and rearming, repeat notices without double counting, final-package preview versus committed completion |
+| Editing and reset | Cleared bullets, deletion/re-add, confirmed-move rejection including after invalid edits/reload, empty stops/all-empty headings, current camera totals, reset without confirmations, Clear/empty editor, cancelled confirmations |
+| Saved runs | Continue/Clear choices, exact list/count/history recovery, pending versus confirmed scans, theme independence, corrupt/unsupported records, blocked/quota/clear failures, stale-tab protection, narrow light/dark dialogs |
+| Camera lifecycle | No camera OCR, operation without Tesseract, rear-camera constraints, locked controls, permission/decoder failures, immediate cancellation, late old-session versus restarted-camera races, blank frames, background/pagehide and disconnection |
 | Phone UI | 320/390 px layouts, compact scrolling editor, unclipped light/dark popups and completion colors, device theme/persistence, unavailable storage, clipboard success/fallback |
 
 These are mobile Chromium tests, not a substitute for checking physical phone

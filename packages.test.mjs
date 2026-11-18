@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice } from './packages.mjs';
+import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice, isRunComplete, movedConfirmedPackage } from './packages.mjs';
 
 const text = '7. Example #1234\n - J4K8\n - L9M2\n - N5R6\n\n12. Other #5678\n - X7Y8';
 
@@ -36,9 +36,10 @@ test('validates explicit stop numbers separately from recipient reference number
   assert.match(getScanStops('').error, /Add stops/);
   assert.match(getScanStops('1. A\n - ID with spaces').error, /format/);
   assert.match(getScanStops('1. A').error, /at least one/);
-  assert.match(getScanStops('1. A\n - ABC\n\n1. B\n - DEF').error, /unique/);
-  assert.match(getScanStops('0. A\n - ABC').error, /positive/);
-  assert.match(getScanStops('1. A\n - ABC\n\n2. B\n - ABC').error, /multiple stops/);
+  assert.match(getScanStops('1. A\n - ABC1\n\n1. B\n - DEF2').error, /unique/);
+  assert.match(getScanStops('0. A\n - ABC1').error, /positive/);
+  assert.match(getScanStops('1. A\n - ABC1\n\n2. B\n - ABC1').error, /multiple stops/);
+  assert.match(getScanStops('1. A\n - AB1').error, /at least four/);
 });
 
 test('matches decoded payloads to listed short IDs and never guesses O/0/Q', () => {
@@ -120,4 +121,51 @@ test('deleting all packages but keeping headings still clears saved scans', () =
   pruneReadings(emptied.stops, readings);
   assert.equal(readings.size, 0);
   assert.equal(matchBarcode('trackingJ4K8', getScanStops(text).stops, readings).kind, 'candidate');
+});
+
+test('manual aliases and case variants count once and cannot belong to multiple stops', () => {
+  const parsed = getScanStops('7. Example\n - ab12\n - trackingAB12\n - TRACKINGab12');
+  assert.equal(parsed.error, null);
+  assert.deepEqual(parsed.stops[0].packages, ['trackingAB12']);
+  assert.match(getScanStops('7. A\n - trackingAB12\n\n12. B\n - TRACKINGab12').error, /multiple stops/);
+  assert.match(getScanStops('7. A\n - AB12\n\n12. B\n - trackingAB12').error, /multiple stops/);
+});
+
+test('equivalent ID upgrades preserve confirmation and duplicate notices do not add another bag', () => {
+  const stops = getScanStops('7. Example\n - trackingAB12').stops;
+  const readings = new Set(['AB12']);
+  pruneReadings(stops, readings);
+  assert.deepEqual([...readings], ['TRACKINGAB12']);
+  assert.equal(stopProgress(stops[0], readings).count, 1);
+  const result = matchBarcode('trackingab12', stops, readings);
+  assert.equal(result.kind, 'duplicate');
+  assert.equal(result.stop.number, 7);
+  assert.deepEqual(getPackageNotice(result.stop, readings, new Set([7]), result.packageId), {
+    isNew: false, countLabel: '1 bag of 1 bag'
+  });
+});
+
+test('run completion previews the last package but requires confirmation and ignores empty stops', () => {
+  const stops = getScanStops('7. Empty\n -\n\n12. Example\n - AB12\n - CD34').stops;
+  const readings = new Set(['AB12']);
+  assert.equal(isRunComplete([], readings), false);
+  assert.equal(isRunComplete(stops, readings), false);
+  assert.equal(isRunComplete(stops, readings, 'cd34'), true);
+  assert.equal(isRunComplete(stops, readings), false);
+  readings.add('CD34');
+  assert.equal(isRunComplete(stops, readings), true);
+});
+
+test('confirmed packages cannot move between stop numbers, including an alias or case change', () => {
+  const previous = getScanStops('7. Example\n - AB12\n\n12. Other\n - CD34').stops;
+  const next = getScanStops('7. Example\n -\n\n12. Other\n - trackingab12\n - CD34').stops;
+  assert.deepEqual(movedConfirmedPackage(previous, next, new Set(['AB12'])), { id: 'AB12', from: 7, to: 12 });
+  assert.equal(movedConfirmedPackage(previous, next, new Set()), null);
+});
+
+test('a short confirmation is never guessed between two distinct full IDs and reports the ambiguity', () => {
+  const stops = getScanStops('7. Example\n - FIRSTAB12\n - SECONDAB12').stops;
+  const readings = new Set(['AB12']);
+  assert.deepEqual(pruneReadings(stops, readings), ['AB12']);
+  assert.equal(readings.size, 0);
 });

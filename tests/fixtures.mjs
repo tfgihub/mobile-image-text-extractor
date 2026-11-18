@@ -37,7 +37,7 @@ export const test = base.extend({
     });
     await page.goto('/');
     await expect(page.locator('#themeButton')).toHaveAttribute('aria-label', /Switch to/);
-    await page.evaluate(() => {
+    const installDevices = () => page.evaluate(() => {
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = 800;
       const context = canvas.getContext('2d');
@@ -99,11 +99,21 @@ export const test = base.extend({
         };
       };
     });
+    await installDevices();
 
     const app = {
       page,
       dialog: page.locator('#matchDialog'),
       cards: page.locator('.stop-card'),
+      async reload() {
+        await page.evaluate(() => window.__appTest?.cleanup());
+        await page.reload();
+        await installDevices();
+      },
+      async clearFrame() {
+        await page.evaluate(() => { __appTest.codes = []; });
+        await page.waitForTimeout(750);
+      },
       async edit(text) { await page.locator('#stopList').fill(text); },
       async open(text = routeList) {
         await app.edit(text);

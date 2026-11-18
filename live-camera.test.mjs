@@ -85,10 +85,30 @@ test('stopping during pending permission releases the late camera stream', async
   const running = camera.start();
   await requested.promise;
   camera.stop();
+  assert.equal(env.active.at(-1), false);
   permission.resolve(env.stream);
   await running;
   assert.equal(env.track.stopped, true);
   assert.equal(env.decodes(), 0);
+});
+
+test('Stop unlocks controls during decoder loading and never requests a late camera permission', async t => {
+  const decoder = deferred();
+  const requested = deferred();
+  const env = setup(t);
+  ZXingWASM.prepareZXingModule = () => { requested.resolve(); return decoder.promise; };
+  let permissions = 0;
+  navigator.mediaDevices.getUserMedia = async () => { permissions++; return env.stream; };
+  const camera = createLiveCamera(env.options);
+  const running = camera.start();
+  await requested.promise;
+  camera.stop();
+  assert.deepEqual(env.active, [true, false]);
+  assert.equal(env.video.srcObject, null);
+  decoder.resolve();
+  await running;
+  assert.equal(permissions, 0);
+  assert.deepEqual(env.active, [true, false]);
 });
 
 test('permission and decoder errors are explicit and release the camera', async t => {
@@ -128,4 +148,46 @@ test('insecure pages never request the camera', async t => {
   await createLiveCamera(env.options).start();
   assert.equal(requested, false);
   assert.match(env.messages.at(-1), /requires HTTPS/);
+});
+
+test('a late permission response cannot stop or overwrite a restarted camera', { timeout: 2000 }, async t => {
+  const permission = deferred();
+  const requested = deferred();
+  const notice = deferred();
+  const env = setup(t);
+  let requests = 0;
+  let acknowledgement;
+  navigator.mediaDevices.getUserMedia = async () => {
+    if (++requests === 1) { requested.resolve(); return permission.promise; }
+    return env.stream;
+  };
+  env.options.onCodes = async () => { notice.resolve(); await acknowledgement.promise; };
+  env.options.onStop = () => acknowledgement?.resolve();
+  const camera = createLiveCamera(env.options);
+  const first = camera.start();
+  await requested.promise;
+  camera.stop();
+  acknowledgement = deferred();
+  const second = camera.start();
+  await notice.promise;
+  const oldTrack = { stopped: false, stop() { this.stopped = true; } };
+  permission.resolve({ getTracks: () => [oldTrack] });
+  await first;
+  assert.equal(oldTrack.stopped, true);
+  assert.equal(env.track.stopped, false);
+  assert.equal(env.video.srcObject, env.stream);
+  assert.equal(env.active.at(-1), true);
+  camera.stop();
+  await second;
+});
+
+test('blank frames notify the caller so held labels can be rearmed', async t => {
+  const env = setup(t);
+  ZXingWASM.readBarcodes = async () => [];
+  let empty = 0;
+  let camera;
+  env.options.onEmpty = () => { empty++; camera.stop(); };
+  camera = createLiveCamera(env.options);
+  await camera.start();
+  assert.equal(empty, 1);
 });
