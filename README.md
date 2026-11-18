@@ -36,7 +36,7 @@ imports until fixed. **Copy List** copies the current editor exactly.
 ## 2. Scan and group packages
 
 Tap **Next: Group Packages**, then **Open Live Camera** and allow camera access.
-The rear camera is preferred. Show one entire label at a time.
+The rear camera is preferred. Show one Data Matrix or QR code at a time.
 
 **Package identity comes from Data Matrix / QR decoding, not printed-ID OCR.**
 The app uses ZXing-C++ WebAssembly, including on browsers without native barcode
@@ -44,39 +44,38 @@ detection. It first matches a decoded full ID; otherwise its last four character
 must uniquely identify a listed ID. Matching ignores letter case, but never
 substitutes Q/O/0 or guesses other characters.
 
-The barcode scan loop does not run OCR. Once a known code is decoded, it pauses
-and immediately displays the large stop number and decoded code. OCR then reads
-only the bag count from that same frozen frame. The barcode does not itself
-contain `n of m bags`.
+The camera does not run OCR or load an OCR worker. Once a known code is decoded,
+it pauses and immediately displays the large stop number, decoded package code,
+and **Bag x of y**. Here, `x` is the number of unique confirmed packages for that
+stop plus this pending package; `y` is the number of unique IDs in the current
+edited screenshot list. Nothing counts until **OK - Resume**. **Rescan - Don't
+Count** dismisses the notice without changing progress, and confirmed codes
+never count twice.
 
-The popup keeps the large stop number and automatically displays **Bag x of y**,
-alongside the expected total from the screenshot list. There are no manual
-bag-count fields. The detected total must equal the number of unique package
-IDs listed for that stop, including on the very first scan. For example, a stop
-with three package rows accepts a `1 of 3 bags` label; a one-package stop does not.
-
-Nothing counts until the bag information validates and you tap **OK - Resume**.
-Unreadable counts, invalid counts, repeated positions, and mismatched totals
-show a warning and are never counted, even after OK. Improve the label framing
-and use **Rescan - Don't Count**, or stop the camera to correct an incomplete
-screenshot list. Rescan dismisses the notice without changing progress.
-Already-confirmed packages never count twice.
+**This is scanned progress, not the printed bag position.** Barcodes contain
+the package ID, not `n of m bags`. Printed label totals and positions are no
+longer read or validated. A listed one-package stop completes after its one
+barcode is confirmed, even if the physical label says `1 of 3 bags`.
 
 Unknown codes, unsupported payloads, ambiguous matches, and multiple labels
 produce **Check this package** notices without modifying the list or progress.
 The same unknown reading is shown once per camera session to avoid a popup loop.
 
-Progress totals always come from the screenshot list, never from camera OCR.
-Cards turn green only after all expected numbered bag positions and all listed
-IDs at that stop are confirmed with matching totals. Bags 1 and 3 of 3 mean 2/3
-found, not complete.
-Currently one consistent bag group per stop is supported. Explicit editor
+Progress totals always come from the current list. Cards turn green after all
+listed IDs at that stop are confirmed, regardless of scan order. Explicit editor
 numbers such as `7.` are preserved for camera notices; otherwise list order is
 used. Screenshot imports number stops in their first-seen order.
 
 Stop the camera to go back and edit/import more screenshots. Progress follows
-listed IDs across edits. **Reset Found Packages** keeps the list; **Clear**
-clears both. Camera tracks are released on Stop, navigation away, or moving the
+listed IDs across edits; deleted IDs lose their saved scans and must be scanned
+again if re-added. Deleting a full package row or clearing its ID updates the
+total and completion immediately. Empty package bullets are ignored. Stops
+with no packages display an explicit skipped message, never turn green, and do
+not block scanning other stops. At least one listed ID is required overall.
+The app rereads the editor when changing steps and opening the camera, so the
+camera list never relies on an earlier snapshot of the editor.
+**Reset Found Packages** keeps the list; **Clear** clears both.
+Camera tracks are released on Stop, navigation away, or moving the
 page to the background. Returning requires opening the camera again.
 
 ## Privacy and limitations
@@ -90,8 +89,8 @@ list before leaving. Camera and clipboard access require HTTPS (or localhost
 for development) and browser permission.
 
 Barcode decoding is usually faster and more reliable than reading printed IDs,
-but depends on focus, light, code size, and device performance. OCR bag counts
-may require rescanning. Screenshot imports still need human review.
+but depends on focus, light, code size, and device performance.
+Screenshot imports still use OCR and need human review.
 
 ## Development and publishing
 

@@ -1,6 +1,6 @@
-import { readStopList, updateStopList } from './stops.mjs?v=bags2';
-import { getScanStops, matchBarcode, readBagCount, validateBagMatch, stopProgress } from './packages.mjs?v=bags2';
-import { createLiveCamera } from './live-camera.mjs?v=bags2';
+import { readStopList, updateStopList } from './stops.mjs?v=fast3';
+import { getScanStops, matchBarcode, stopProgress, pruneReadings } from './packages.mjs?v=fast3';
+import { createLiveCamera } from './live-camera.mjs?v=fast3';
 
 const byId = id => document.getElementById(id);
 const stopList = byId('stopList');
@@ -8,7 +8,7 @@ const imageInput = byId('imageInput');
 const status = byId('status');
 const cameraStatus = byId('cameraStatus');
 const dialog = byId('matchDialog');
-const readings = new Map();
+const readings = new Set();
 const alerted = new Set();
 let stops = [];
 let valid = false;
@@ -32,6 +32,7 @@ function renderProgress() {
   const parsed = getScanStops(stopList.value);
   stops = parsed.stops;
   valid = !parsed.error;
+  if (stops.length || !stopList.value.trim()) pruneReadings(stops, readings);
   byId('listError').textContent = parsed.error || '';
   byId('stopProgress').replaceChildren();
   for (const stop of stops) {
@@ -41,14 +42,15 @@ function renderProgress() {
     const heading = document.createElement('h3');
     heading.textContent = `Stop ${stop.number}: ${stop.address}`;
     const summary = document.createElement('p');
-    summary.textContent = `${progress.count}/${progress.total} bags found; ${progress.listedFound}/${progress.listedTotal} listed IDs matched` +
-      (progress.complete ? ' - Complete' : '') + (progress.conflict ? ' - Conflicting bag groups: check the list and reset progress.' : '');
+    summary.textContent = progress.total
+      ? `${progress.count}/${progress.total} bags scanned` + (progress.complete ? ' - Complete' : '')
+      : 'No packages listed - skipped while scanning.';
     const list = document.createElement('ul');
     for (const id of stop.packages) {
       const item = document.createElement('li');
-      const label = readings.get(id);
-      item.textContent = id + (label ? ` - bag ${label.bagNumber}/${label.totalBags} - Found` : ' - Not found');
-      if (label) item.className = 'found';
+      const found = readings.has(id);
+      item.textContent = id + (found ? ' - Found' : ' - Not found');
+      if (found) item.className = 'found';
       list.append(item);
     }
     card.append(heading, summary, list);
@@ -58,7 +60,9 @@ function renderProgress() {
 }
 
 function showStep(number) {
-  if (processing || cameraActive || (number === 2 && !valid)) return;
+  if (processing || cameraActive) return;
+  renderProgress();
+  if (number === 2 && !valid) return;
   byId('uploadStep').hidden = number !== 1;
   byId('groupStep').hidden = number !== 2;
   for (const value of [1, 2]) {
@@ -77,23 +81,6 @@ function dismissNotice() {
   if (resolve) resolve();
 }
 
-function validateNotice(count) {
-  if (!pending) return;
-  pending.bagCount = count;
-  byId('matchCount').textContent = `Bag ${count.bagNumber} of ${count.totalBags}`;
-  const result = validateBagMatch(pending, count.bagNumber, count.totalBags, readings);
-  byId('matchOkButton').disabled = false;
-  if (result.kind !== 'match') {
-    byId('matchTitle').textContent = 'Check bag information';
-    byId('matchMessage').textContent = result.message;
-    return;
-  }
-  const preview = new Map(readings);
-  preview.set(result.packageId, result);
-  const progress = stopProgress(result.stop, preview);
-  byId('matchMessage').textContent = `Bag total matches the screenshot list. Tap OK to count this bag and resume. After OK: ${progress.count}/${progress.total} bags found.`;
-}
-
 const camera = createLiveCamera({
   video: byId('cameraPreview'),
   onActive(active) {
@@ -104,7 +91,7 @@ const camera = createLiveCamera({
   onStatus(message) { cameraStatus.textContent = message; },
   onTiming(milliseconds) { byId('decodeTiming').textContent = `Last barcode decode: ${milliseconds} ms (this device)`; },
   onStop: dismissNotice,
-  async onCodes(codes, readBags) {
+  async onCodes(codes) {
     const result = codes.length === 1
       ? matchBarcode(codes[0], stops, readings)
       : { kind: 'check', code: 'Multiple barcodes', message: 'Show only one package label. Nothing was assigned.' };
@@ -113,7 +100,6 @@ const camera = createLiveCamera({
     if (result.kind === 'check' && alerted.has(key)) return;
     if (result.kind === 'check') alerted.add(key);
     pending = result;
-    const notice = result;
     const matched = result.kind === 'candidate';
     byId('matchTitle').textContent = matched ? 'Package found at stop' : 'Check this package';
     byId('matchStopNumber').hidden = !matched;
@@ -121,37 +107,17 @@ const camera = createLiveCamera({
     byId('matchCode').textContent = result.code;
     byId('matchPackageId').textContent = matched ? `Listed ID: ${result.packageId}` : '';
     byId('matchAddress').textContent = matched ? result.stop.address : 'Not assigned to any stop.';
-    byId('matchExpectedCount').textContent = matched ? `Expected from screenshot list: ${result.stop.packages.length} bag(s)` : '';
-    byId('matchCount').textContent = matched ? 'Bag count: reading label...' : '';
-    byId('matchMessage').textContent = matched ? 'Reading bag information automatically. Nothing is counted until it is validated and you tap OK.' : result.message;
+    const progress = matched ? stopProgress(result.stop, readings) : null;
+    byId('matchExpectedCount').textContent = matched ? `Total in current list: ${progress.total} bag(s)` : '';
+    byId('matchCount').textContent = matched ? `Bag ${progress.count + 1} of ${progress.total}` : '';
+    byId('matchMessage').textContent = matched ? 'Tap OK to count this package and resume. This is scanned progress, not the printed bag position.' : result.message;
     byId('matchOkButton').textContent = 'OK - Resume';
-    byId('matchOkButton').disabled = matched;
+    byId('matchOkButton').disabled = false;
     cameraStatus.textContent = 'Barcode decoded. Scanning paused; nothing is counted until confirmation.';
     const acknowledgement = new Promise(resolve => { releaseNotice = resolve; });
     dialog.showModal();
     byId('matchTitle').focus({ preventScroll: true });
-    const bagTask = matched ? (async () => {
-      try {
-        const text = await readBags();
-        if (pending !== notice) return;
-        const count = readBagCount(text);
-        if (count.error) {
-          byId('matchTitle').textContent = 'Bag count not detected';
-          byId('matchCount').textContent = 'Bag count not detected';
-          byId('matchMessage').textContent = count.error;
-          byId('matchOkButton').disabled = false;
-        } else validateNotice(count);
-      } catch (error) {
-        console.error('Bag-count OCR failed:', error);
-        if (pending === notice) {
-          byId('matchTitle').textContent = 'Bag count not detected';
-          byId('matchCount').textContent = 'Bag count not detected';
-          byId('matchMessage').textContent = 'Bag-count OCR failed. Nothing was counted. Rescan the whole label. ' + (error instanceof Error ? error.message : String(error));
-          byId('matchOkButton').disabled = false;
-        }
-      }
-    })() : Promise.resolve();
-    await Promise.all([acknowledgement, bagTask]);
+    await acknowledgement;
   }
 });
 
@@ -159,7 +125,10 @@ for (const id of ['step1Button', 'backButton']) byId(id).addEventListener('click
 for (const id of ['step2Button', 'nextButton']) byId(id).addEventListener('click', () => showStep(2));
 byId('cameraButton').addEventListener('click', () => {
   if (cameraActive) camera.stop();
-  else if (valid) { alerted.clear(); camera.start(); }
+  else {
+    renderProgress();
+    if (valid) { alerted.clear(); camera.start(); }
+  }
 });
 dialog.addEventListener('cancel', event => event.preventDefault());
 byId('rescanButton').addEventListener('click', () => {
@@ -169,15 +138,13 @@ byId('rescanButton').addEventListener('click', () => {
 byId('matchOkButton').addEventListener('click', () => {
   if (!pending) return;
   if (pending.kind === 'candidate') {
-    if (byId('matchOkButton').disabled) return;
-    const count = pending.bagCount;
-    const result = count ? validateBagMatch(pending, count.bagNumber, count.totalBags, readings) : null;
-    if (!result || result.kind !== 'match') {
-      cameraStatus.textContent = 'Bag not counted. ' + (result?.message || 'Bag information was not detected. Show the whole label and rescan.');
+    const result = matchBarcode(pending.barcode, stops, readings);
+    if (result.kind === 'check') {
+      cameraStatus.textContent = result.message;
       dismissNotice();
       return;
     }
-    readings.set(result.packageId, result);
+    if (result.kind === 'candidate') readings.add(result.packageId);
     renderProgress();
   }
   cameraStatus.textContent = 'Scanning Data Matrix / QR codes... Show one whole package label.';
@@ -194,6 +161,7 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('pagehide', () => camera.stop());
 stopList.addEventListener('input', renderProgress);
+stopList.addEventListener('change', renderProgress);
 
 function importMessage(text) {
   const item = document.createElement('li');

@@ -8,7 +8,7 @@
   <title>Stops &amp; Packages - Prototype</title>
   <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.2/dist/iife/reader/index.js"></script>
-  <script type="module" src="./app.mjs?v=bags2"></script>
+  <script type="module" src="./app.mjs?v=fast3"></script>
   <style>
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
@@ -69,7 +69,7 @@
     </section>
     <section id="groupStep" aria-labelledby="groupHeading" hidden>
       <h2 id="groupHeading">2. Scan and group packages</h2>
-      <p class="note">Show one whole label. The camera decodes its Data Matrix or QR code and automatically reads "bag x of y." The label total must match the number of packages listed for that stop. The popup shows the stop number and bag count; tap OK to count a validated bag and resume. Unreadable or mismatched bags are not counted. Rescan never counts a package.</p>
+      <p class="note">Scan one Data Matrix or QR code at a time. No camera text recognition is used. The popup shows the stop number and "Bag x of y": unique packages scanned after OK out of the total in your current list, not the printed bag position. Tap OK to count and resume. Rescan never counts a package.</p>
       <button id="cameraButton" type="button">Open Live Camera</button>
       <video id="cameraPreview" autoplay muted playsinline hidden aria-label="Live package camera"></video>
       <p id="cameraStatus" role="status" aria-live="polite">Camera is off.</p>

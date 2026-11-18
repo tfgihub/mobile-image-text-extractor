@@ -1,4 +1,4 @@
-import { prepareBarcodeReader, decodeBarcodeFrame } from './barcode.mjs?v=bags2';
+import { prepareBarcodeReader, decodeBarcodeFrame } from './barcode.mjs?v=fast3';
 
 export function createLiveCamera({ video, onCodes, onStatus, onActive, onStop, onTiming = () => {} }) {
   let session;
@@ -14,7 +14,7 @@ export function createLiveCamera({ video, onCodes, onStatus, onActive, onStop, o
 
   async function start() {
     if (session) return;
-    const current = { cancelled: false, stream: null, worker: null };
+    const current = { cancelled: false, stream: null };
     session = current;
     onActive(true);
     try {
@@ -52,25 +52,7 @@ export function createLiveCamera({ video, onCodes, onStatus, onActive, onStop, o
           const codes = await decodeBarcodeFrame(context.getImageData(0, 0, canvas.width, canvas.height));
           if (current.cancelled) break;
           onTiming(Math.round(performance.now() - start));
-          if (codes.length) {
-            let bagTask;
-            const readBags = () => {
-              if (!bagTask) {
-                bagTask = (async () => {
-                  if (!globalThis.Tesseract) throw new Error('Bag-count OCR did not load. Check your connection and rescan.');
-                  if (!current.worker) {
-                    current.worker = await Tesseract.createWorker('eng');
-                    if (current.cancelled) return '';
-                    await current.worker.setParameters({ tessedit_pageseg_mode: '11' });
-                  }
-                  const result = await current.worker.recognize(canvas);
-                  return result.data.text;
-                })();
-              }
-              return bagTask;
-            };
-            await onCodes(codes, readBags);
-          }
+          if (codes.length) await onCodes(codes);
         }
         if (!current.cancelled) await new Promise(resolve => setTimeout(resolve, 100));
       }
@@ -85,14 +67,6 @@ export function createLiveCamera({ video, onCodes, onStatus, onActive, onStop, o
       video.pause();
       video.srcObject = null;
       onStop();
-      if (current.worker) {
-        try {
-          await current.worker.terminate();
-        } catch (error) {
-          console.error('Live OCR cleanup failed:', error);
-          onStatus('Live OCR cleanup failed. Copy your list before reloading; progress will reset on reload.');
-        }
-      }
       session = null;
       onActive(false);
     }

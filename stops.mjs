@@ -149,7 +149,7 @@ export function readStopList(text) {
     if (!block.trim()) continue;
     const [heading, ...lines] = block.split(/\r?\n/).map(line => line.trim());
     const address = heading.replace(/^\d+[.)]\s+/, '').replace(/\s+\(\d+ packages?\)$/, '');
-    const packages = lines.map(line => line.replace(/^[-*]\s+/, ''));
+    const packages = lines.filter(line => !/^[-*]\s*$/.test(line)).map(line => line.replace(/^[-*]\s+/, ''));
     if (!address || /^[-*]\s/.test(address) || packages.some(id => !/^[A-Za-z0-9_-]+$/.test(id))) {
       return { stops: [], error: 'Your existing text was kept as-is. New stops were appended without merging. Use an address followed by one package ID per line, with a blank line between stops.' };
     }

@@ -2,6 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseStops, mergeStops, formatStops, readStopList, updateStopList } from './stops.mjs';
 
+test('clearing a package ID leaves an empty bullet that is ignored rather than a stale package', () => {
+  assert.deepEqual(readStopList('1. Example #1234\n -\n - AB12\n *\n - CD34'), {
+    stops: [{ address: 'Example #1234', packages: ['AB12', 'CD34'] }], error: null
+  });
+  assert.deepEqual(readStopList('1. Example #1234\n -').stops[0].packages, []);
+});
+
 test('groups noisy OCR package rows under the address, without reading icons as counts', () => {
   const result = parseStops('Edit stop\n@ 1000 125TH PL SE\nExample\n% No Recipient Required\n6 Unknown spTestAlpha1\n®6 Unknown spTestBeta2\nContinue with 2 packages');
   assert.deepEqual(result, {

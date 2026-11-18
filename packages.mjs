@@ -1,4 +1,4 @@
-import { readStopList } from './stops.mjs?v=bags2';
+import { readStopList } from './stops.mjs?v=fast3';
 
 export function getScanStops(text) {
   const parsed = readStopList(text);
@@ -18,41 +18,28 @@ export function getScanStops(text) {
     }
     numbers.add(number);
     const packages = [...new Set(stop.packages)];
-    if (!packages.length) return { stops: [], error: `Add at least one package ID for stop ${number}.` };
     for (const id of packages) {
       if (ids.has(id)) return { stops: [], error: `Package ${id} is listed at multiple stops. Assign it to one stop before scanning.` };
       ids.add(id);
     }
     stops.push({ ...stop, number, packages });
   }
+  if (!stops.some(stop => stop.packages.length)) return { stops, error: 'Add at least one package ID before scanning.' };
   return { stops, error: null };
 }
 
-export function readBagCount(text) {
-  const fractions = [...text.matchAll(/(?:^|[^A-Za-z0-9])(\d+)\s*(?:[o0]f|\/)\s*(\d+)\s*bags?\b/gi)];
-  if (!fractions.length) return { error: 'Bag count was not readable. Nothing was counted. Rescan with the whole label clearly visible.' };
-  if (new Set(fractions.map(item => `${Number(item[1])}/${Number(item[2])}`)).size > 1) {
-    return { error: 'Multiple bag counts were read. Nothing was counted. Rescan one whole label at a time.' };
+export function pruneReadings(stops, readings) {
+  const listed = new Set(stops.flatMap(stop => stop.packages));
+  for (const id of readings) {
+    if (!listed.has(id)) readings.delete(id);
   }
-  const bagNumber = Number(fractions[0][1]);
-  const totalBags = Number(fractions[0][2]);
-  if (!Number.isSafeInteger(bagNumber) || !Number.isSafeInteger(totalBags) || bagNumber < 1 || totalBags < 1 || bagNumber > totalBags) {
-    return { error: 'The detected bag number or total is invalid. Nothing was counted. Rescan the label.' };
-  }
-  return { bagNumber, totalBags, error: null };
 }
 
 export function stopProgress(stop, readings) {
-  const labels = stop.packages.filter(id => readings.has(id)).map(id => readings.get(id));
-  const positions = new Set(labels.map(label => label.bagNumber));
   const total = stop.packages.length;
-  const conflict = positions.size !== labels.length || labels.some(label =>
-    label.totalBags !== total || !Number.isSafeInteger(label.bagNumber) || label.bagNumber < 1 || label.bagNumber > total
-  );
-  const count = positions.size;
+  const count = stop.packages.filter(id => readings.has(id)).length;
   return {
-    count, total, listedFound: labels.length, listedTotal: stop.packages.length, conflict,
-    complete: !conflict && total > 0 && count === total && labels.length === stop.packages.length
+    count, total, complete: total > 0 && count === total
   };
 }
 
@@ -79,31 +66,4 @@ export function matchBarcode(payload, stops, readings) {
   const match = matches[0];
   if (readings.has(match.packageId)) return { kind: 'duplicate', code, barcode };
   return { kind: 'candidate', code, barcode, ...match };
-}
-
-export function validateBagMatch(candidate, bagNumber, totalBags, readings) {
-  const label = { code: candidate.code, bagNumber, totalBags };
-  if (!Number.isSafeInteger(bagNumber) || !Number.isSafeInteger(totalBags) || bagNumber < 1 || totalBags < 1 || bagNumber > totalBags) {
-    return { kind: 'check', message: 'The detected bag information is invalid. Nothing was counted. Rescan the label.' };
-  }
-  const match = candidate;
-  const expectedTotal = match.stop.packages.length;
-  if (totalBags !== expectedTotal) {
-    return {
-      ...label, kind: 'check',
-      message: `Bag total mismatch: the screenshot list has ${expectedTotal} package(s) for stop ${match.stop.number}, but the label says ${totalBags} bags. Nothing was counted. Check that all screenshots for this stop were imported.`
-    };
-  }
-  const previous = readings.get(match.packageId);
-  if (previous) {
-    if (previous.bagNumber === label.bagNumber && previous.totalBags === label.totalBags) {
-      return { ...label, kind: 'duplicate' };
-    }
-    return { ...label, kind: 'check', message: 'This package was already read with a different bag number or total. Check the label; existing progress was kept.' };
-  }
-  const otherLabels = match.stop.packages.filter(id => readings.has(id)).map(id => readings.get(id));
-  if (otherLabels.some(item => item.totalBags !== label.totalBags || item.bagNumber === label.bagNumber)) {
-    return { ...label, kind: 'check', message: 'This bag number or total conflicts with another package at this stop. Check the packages; nothing was added.' };
-  }
-  return { ...match, ...label, kind: 'match' };
 }

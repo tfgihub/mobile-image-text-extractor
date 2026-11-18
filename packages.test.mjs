@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getScanStops, readBagCount, matchBarcode, validateBagMatch, stopProgress } from './packages.mjs';
+import { getScanStops, matchBarcode, stopProgress, pruneReadings } from './packages.mjs';
 
 const text = '7. Example #1234\n - J4K8\n - L9M2\n - N5R6\n\n12. Other #5678\n - X7Y8';
-const record = (code, bagNumber, totalBags = 3) => ({ code, bagNumber, totalBags });
 
 test('validates explicit stop numbers separately from recipient reference numbers', () => {
   const parsed = getScanStops(text);
@@ -16,19 +15,9 @@ test('validates explicit stop numbers separately from recipient reference number
   assert.match(getScanStops('1. A\n - ABC\n\n2. B\n - ABC').error, /multiple stops/);
 });
 
-test('reads only bag counts from OCR; printed ID errors cannot change barcode identity', () => {
-  assert.deepEqual(readBagCount('1 of 3 bags\nWeight: 3 lbs\nWR0N'), { bagNumber: 1, totalBags: 3, error: null });
-  assert.deepEqual(readBagCount('_10f 3 bags'), { bagNumber: 1, totalBags: 3, error: null });
-  assert.deepEqual(readBagCount('3of3bags'), { bagNumber: 3, totalBags: 3, error: null });
-  assert.match(readBagCount('No count').error, /not readable/);
-  assert.match(readBagCount('0 of 3 bags').error, /invalid/);
-  assert.match(readBagCount('4 of 3 bags').error, /invalid/);
-  assert.match(readBagCount('1 of 3 bags\n2 of 4 bags').error, /Multiple/);
-});
-
 test('matches decoded payloads to listed short IDs and never guesses O/0/Q', () => {
   const { stops } = getScanStops(text);
-  const readings = new Map();
+  const readings = new Set();
   const match = matchBarcode('EXAMPLETRACK12345J4K8', stops, readings);
   assert.equal(match.kind, 'candidate');
   assert.equal(match.packageId, 'J4K8');
@@ -40,61 +29,69 @@ test('matches decoded payloads to listed short IDs and never guesses O/0/Q', () 
 
 test('prefers a full exact ID and rejects ambiguous suffixes without assigning', () => {
   const stops = getScanStops('1. A\n - fullFirstJ4K8\n\n2. B\n - fullSecondJ4K8').stops;
-  assert.equal(matchBarcode('fullSecondJ4K8', stops, new Map()).stop.number, 2);
-  assert.match(matchBarcode('otherPrefixJ4K8', stops, new Map()).message, /multiple/);
-  assert.match(matchBarcode('unknownIDAB12', stops, new Map()).message, /not in the stop list/);
+  assert.equal(matchBarcode('fullSecondJ4K8', stops, new Set()).stop.number, 2);
+  assert.match(matchBarcode('otherPrefixJ4K8', stops, new Set()).message, /multiple/);
+  assert.match(matchBarcode('unknownIDAB12', stops, new Set()).message, /not in the stop list/);
 });
 
-test('bags 1 and 3 of 3 remain incomplete until bag 2 is confirmed', () => {
+test('counts unique confirmed barcodes in scan order, without printed bag positions', () => {
   const { stops } = getScanStops(text);
-  const readings = new Map([['J4K8', record('J4K8', 1)], ['L9M2', record('L9M2', 3)]]);
+  const readings = new Set(['J4K8', 'L9M2']);
   assert.deepEqual(stopProgress(stops[0], readings), {
-    count: 2, total: 3, listedFound: 2, listedTotal: 3, conflict: false, complete: false
+    count: 2, total: 3, complete: false
   });
   const candidate = matchBarcode('trackingN5R6', stops, readings);
-  const confirmed = validateBagMatch(candidate, 2, 3, readings);
-  assert.equal(confirmed.kind, 'match');
+  assert.equal(candidate.kind, 'candidate');
   assert.equal(readings.size, 2);
-  readings.set(confirmed.packageId, confirmed);
+  readings.add(candidate.packageId);
+  readings.add(candidate.packageId);
   assert.equal(stopProgress(stops[0], readings).complete, true);
+  assert.equal(stopProgress(stops[0], readings).count, 3);
   assert.equal(matchBarcode('trackingN5R6', stops, readings).kind, 'duplicate');
 });
 
-test('conflicting totals, repeated positions, invalid detected counts never count', () => {
-  const { stops } = getScanStops(text);
-  const readings = new Map([['J4K8', record('J4K8', 1)]]);
-  const candidate = matchBarcode('trackingL9M2', stops, readings);
-  for (const [bag, total] of [[0, 3], [4, 3], [1.5, 3], [1, 3], [2, 4], [NaN, 3]]) {
-    assert.equal(validateBagMatch(candidate, bag, total, readings).kind, 'check');
-  }
-  assert.equal(readings.size, 1);
+test('a one-package stop completes from its barcode alone', () => {
+  const stop = getScanStops(text).stops[1];
+  assert.deepEqual(stopProgress(stop, new Set()), { count: 0, total: 1, complete: false });
+  assert.deepEqual(stopProgress(stop, new Set(['X7Y8'])), { count: 1, total: 1, complete: true });
 });
 
-test('screenshot package rows set the total before scanning and reject a first-label mismatch', () => {
-  const { stops } = getScanStops(text);
-  const readings = new Map();
-  assert.equal(stopProgress(stops[0], readings).total, 3);
-  assert.equal(stopProgress(stops[1], readings).total, 1);
-  const candidate = matchBarcode('trackingX7Y8', stops, readings);
-  const mismatch = validateBagMatch(candidate, 1, 3, readings);
-  assert.equal(mismatch.kind, 'check');
-  assert.match(mismatch.message, /screenshot list has 1 package\(s\).*label says 3 bags/);
+test('deleting a package updates totals and removes its saved scan, including on re-add', () => {
+  const readings = new Set(['J4K8', 'L9M2']);
+  const { stops } = getScanStops('7. Example #1234\n - J4K8\n - N5R6\n\n12. Other #5678\n - X7Y8');
+  pruneReadings(stops, readings);
+  assert.deepEqual([...readings], ['J4K8']);
+  assert.deepEqual(stopProgress(stops[0], readings), { count: 1, total: 2, complete: false });
+  const readded = getScanStops(text).stops;
+  assert.equal(matchBarcode('trackingL9M2', readded, readings).kind, 'candidate');
+  assert.equal(stopProgress(readded[0], readings).total, 3);
+});
+
+test('deleting an unscanned package recomputes completion; deleting a stop prunes only its scans', () => {
+  const readings = new Set(['J4K8', 'L9M2', 'X7Y8']);
+  const remaining = getScanStops('7. Example #1234\n - J4K8\n - L9M2').stops;
+  pruneReadings(remaining, readings);
+  assert.deepEqual([...readings], ['J4K8', 'L9M2']);
+  assert.deepEqual(stopProgress(remaining[0], readings), { count: 2, total: 2, complete: true });
+  pruneReadings([], readings);
   assert.equal(readings.size, 0);
-  assert.equal(stopProgress(stops[1], readings).total, 1);
-  const accepted = validateBagMatch(candidate, 1, 1, readings);
-  assert.equal(accepted.kind, 'match');
-  readings.set(accepted.packageId, accepted);
-  assert.equal(stopProgress(stops[1], readings).complete, true);
 });
 
-test('missing IDs, editing, and mixed groups prevent premature green completion', () => {
-  const stop = getScanStops(text).stops[0];
-  stop.packages.pop();
-  const readings = new Map([['J4K8', record('J4K8', 1)], ['L9M2', record('L9M2', 3)]]);
-  assert.deepEqual(stopProgress(stop, readings), {
-    count: 2, total: 2, listedFound: 2, listedTotal: 2, conflict: true, complete: false
-  });
-  readings.set('L9M2', record('L9M2', 2, 4));
-  assert.equal(stopProgress(stop, readings).conflict, true);
-  assert.equal(stopProgress({ packages: [] }, readings).complete, false);
+test('deleting the last ID at one stop leaves other stops scannable and preserves stop numbers', () => {
+  const result = getScanStops('7. Example #1234\n -\n\n12. Other #5678\n - X7Y8');
+  assert.equal(result.error, null);
+  assert.deepEqual(result.stops.map(stop => stop.number), [7, 12]);
+  assert.deepEqual(stopProgress(result.stops[0], new Set()), { count: 0, total: 0, complete: false });
+  assert.equal(matchBarcode('trackingX7Y8', result.stops, new Set()).stop.number, 12);
+  assert.match(getScanStops('7. Example #1234\n -').error, /at least one/);
+});
+
+test('deleting all packages but keeping headings still clears saved scans', () => {
+  const readings = new Set(['J4K8', 'X7Y8']);
+  const emptied = getScanStops('7. Example #1234\n -\n\n12. Other #5678\n -');
+  assert.match(emptied.error, /at least one/);
+  assert.equal(emptied.stops.length, 2);
+  pruneReadings(emptied.stops, readings);
+  assert.equal(readings.size, 0);
+  assert.equal(matchBarcode('trackingJ4K8', getScanStops(text).stops, readings).kind, 'candidate');
 });

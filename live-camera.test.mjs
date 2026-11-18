@@ -11,18 +11,14 @@ function deferred() {
 function setup(t, overrides = {}) {
   const track = { stopped: false, stop() { this.stopped = true; }, addEventListener(name, fn) { this[name] = fn; } };
   const stream = { getTracks: () => [track], getVideoTracks: () => [track] };
-  const worker = {
-    calls: 0, terminated: false, async setParameters() {},
-    async recognize() { this.calls++; return { data: { text: '1 of 3 bags\nWRONG' } }; },
-    async terminate() { this.terminated = true; }
-  };
+  let ocrWorkers = 0;
   const video = { readyState: 4, videoWidth: 1000, videoHeight: 500, async play() {}, pause() {}, srcObject: null };
   let decodes = 0;
   const globals = {
     isSecureContext: true,
     navigator: { mediaDevices: { getUserMedia: async () => stream } },
     document: { createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: () => ({}) }) }) },
-    Tesseract: { createWorker: async () => worker },
+    Tesseract: { createWorker() { ocrWorkers++; throw new Error('Camera OCR must not run'); } },
     ZXingWASM: {
       async prepareZXingModule() {},
       async readBarcodes() { decodes++; return [{ text: 'trackingAB12', isValid: true }]; }
@@ -40,7 +36,7 @@ function setup(t, overrides = {}) {
   const messages = [];
   const active = [];
   return {
-    track, stream, worker, video, messages, active, decodes: () => decodes,
+    track, stream, video, messages, active, decodes: () => decodes, ocrWorkers: () => ocrWorkers,
     options: { video, onCodes: async () => {}, onStatus: message => messages.push(message), onActive: value => active.push(value), onStop() {} }
   };
 }
@@ -60,7 +56,7 @@ test('barcode detection pauses for confirmation, then resumes; no package ID OCR
   await first.promise;
   await new Promise(resolve => setTimeout(resolve, 30));
   assert.equal(env.decodes(), 1);
-  assert.equal(env.worker.calls, 0);
+  assert.equal(env.ocrWorkers(), 0);
   acknowledge.resolve();
   await running;
   assert.equal(env.decodes(), 2);
@@ -68,19 +64,17 @@ test('barcode detection pauses for confirmation, then resumes; no package ID OCR
   assert.deepEqual(env.active, [true, false]);
 });
 
-test('OCR is lazy and only reads the frozen frame for bag counts after a decoded code', async t => {
-  const env = setup(t);
+test('barcode camera works without Tesseract and never offers a bag-OCR callback', async t => {
+  const env = setup(t, { Tesseract: undefined });
   let camera;
-  env.options.onCodes = async (codes, readBags) => {
-    assert.equal(env.worker.calls, 0);
-    assert.equal(await readBags(), '1 of 3 bags\nWRONG');
-    assert.equal(await readBags(), '1 of 3 bags\nWRONG');
-    assert.equal(env.worker.calls, 1);
+  env.options.onCodes = async (...args) => {
+    assert.deepEqual(args, [['trackingAB12']]);
     camera.stop();
   };
   camera = createLiveCamera(env.options);
   await camera.start();
-  assert.equal(env.worker.terminated, true);
+  assert.equal(env.ocrWorkers(), 0);
+  assert.equal(env.track.stopped, true);
 });
 
 test('stopping during pending permission releases the late camera stream', async t => {
@@ -95,21 +89,6 @@ test('stopping during pending permission releases the late camera stream', async
   await running;
   assert.equal(env.track.stopped, true);
   assert.equal(env.decodes(), 0);
-});
-
-test('stopping while bag OCR loads cleans up the late worker', async t => {
-  const loading = deferred();
-  const started = deferred();
-  const env = setup(t, { Tesseract: { createWorker() { started.resolve(); return loading.promise; } } });
-  env.options.onCodes = async (codes, readBags) => { await readBags(); };
-  const camera = createLiveCamera(env.options);
-  const running = camera.start();
-  await started.promise;
-  camera.stop();
-  loading.resolve(env.worker);
-  await running;
-  assert.equal(env.worker.calls, 0);
-  assert.equal(env.worker.terminated, true);
 });
 
 test('permission and decoder errors are explicit and release the camera', async t => {
