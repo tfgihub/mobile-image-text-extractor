@@ -3,6 +3,16 @@
 A mobile browser prototype with two steps. No build step, backend, or image
 upload service is required.
 
+## Appearance
+
+The compact layout keeps instructions out of the workflow and uses a short,
+scrollable package editor that can be resized vertically. The sun/moon button
+switches between white and black themes, including scanner cards and notices.
+The initial theme follows the device preference; an explicit choice is saved
+locally for future visits. Only the theme is saved, not the package list or
+scanning progress. If browser storage is unavailable, the theme still switches
+for the current page and a warning is logged.
+
 ## 1. Upload and check the package list
 
 Select multiple screenshots together. They are read sequentially with one OCR
@@ -31,11 +41,11 @@ scanning. Overall cart counters such as `20 OF 40` are not per-stop totals.
 
 Failed or unrecognized screenshots leave the existing list intact. Other files
 in the batch are still processed. Invalid editor formatting blocks further
-imports until fixed. **Copy List** copies the current editor exactly.
+imports until fixed. **Copy list** copies the current editor exactly.
 
 ## 2. Scan and group packages
 
-Tap **Next: Group Packages**, then **Open Live Camera** and allow camera access.
+Tap **Continue to scan**, then **Open Live Camera** and allow camera access.
 The rear camera is preferred. Show one Data Matrix or QR code at a time.
 
 **Package identity comes from Data Matrix / QR decoding, not printed-ID OCR.**

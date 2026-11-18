@@ -1,4 +1,4 @@
-import { prepareBarcodeReader, decodeBarcodeFrame } from './barcode.mjs?v=fast3';
+import { prepareBarcodeReader, decodeBarcodeFrame } from './barcode.mjs?v=themes4';
 
 export function createLiveCamera({ video, onCodes, onStatus, onActive, onStop, onTiming = () => {} }) {
   let session;

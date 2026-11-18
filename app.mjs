@@ -1,6 +1,6 @@
-import { readStopList, updateStopList } from './stops.mjs?v=fast3';
-import { getScanStops, matchBarcode, stopProgress, pruneReadings } from './packages.mjs?v=fast3';
-import { createLiveCamera } from './live-camera.mjs?v=fast3';
+import { readStopList, updateStopList } from './stops.mjs?v=themes4';
+import { getScanStops, matchBarcode, stopProgress, pruneReadings } from './packages.mjs?v=themes4';
+import { createLiveCamera } from './live-camera.mjs?v=themes4';
 
 const byId = id => document.getElementById(id);
 const stopList = byId('stopList');
@@ -8,6 +8,7 @@ const imageInput = byId('imageInput');
 const status = byId('status');
 const cameraStatus = byId('cameraStatus');
 const dialog = byId('matchDialog');
+const themeButton = byId('themeButton');
 const readings = new Set();
 const alerted = new Set();
 let stops = [];
@@ -16,6 +17,26 @@ let processing = false;
 let cameraActive = false;
 let pending;
 let releaseNotice;
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const action = theme === 'dark' ? 'Switch to white theme' : 'Switch to black theme';
+  themeButton.setAttribute('aria-label', action);
+  themeButton.title = action;
+  document.querySelector('meta[name="theme-color"]').content =
+    getComputedStyle(document.documentElement).getPropertyValue('--page').trim();
+}
+
+applyTheme(document.documentElement.dataset.theme);
+themeButton.addEventListener('click', () => {
+  const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  applyTheme(theme);
+  try {
+    localStorage.setItem('package-sort-theme', theme);
+  } catch (error) {
+    console.warn('Theme changed for this page, but the preference could not be saved.', error);
+  }
+});
 
 function updateButtons() {
   const busy = processing || cameraActive;
@@ -33,7 +54,7 @@ function renderProgress() {
   stops = parsed.stops;
   valid = !parsed.error;
   if (stops.length || !stopList.value.trim()) pruneReadings(stops, readings);
-  byId('listError').textContent = parsed.error || '';
+  byId('listError').textContent = stopList.value.trim() ? parsed.error || '' : '';
   byId('stopProgress').replaceChildren();
   for (const stop of stops) {
     const progress = stopProgress(stop, readings);
