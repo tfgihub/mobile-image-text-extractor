@@ -135,10 +135,24 @@ npm test
 ```
 
 **Before merging or publishing a feature, add regression coverage for its
-behavior and run `npm test`.** This runs the existing 34 unit tests followed by
-50 mobile browser integration cases. Target a workflow during development with
+behavior and run `npm test`.** This runs the unit tests followed by
+the mobile browser integration cases. Target a workflow during development with
 `npm run test:integration -- tests/scanning.spec.mjs`, or run just the unit
 suite with `npm run test:unit`.
+
+To watch tests slowly on a desktop with a graphical display, install the full
+browser once and start Inspector:
+
+```sh
+npx playwright install chromium
+npm run test:integration -- --debug
+```
+
+Click **Resume (F8)** in Inspector to continue from its initial pause. Local
+debug runs add one second between browser actions and keep the final screen
+open for three seconds before the next test. Use **Step Over (F10)** for one
+action at a time. Stop an existing run with Ctrl+C and restart it to pick up
+configuration changes. Normal runs and CI add neither of these viewing delays.
 
 The browser suite uses the real page, file uploads, editor, camera frame loop,
 dialogs and buttons. A real Tesseract worker reads a generated two-stop image;

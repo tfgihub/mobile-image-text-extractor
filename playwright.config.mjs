@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const slowDebug = process.env.PWDEBUG === '1' && !process.env.CI;
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
@@ -11,6 +13,7 @@ export default defineConfig({
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: 'http://127.0.0.1:4173',
+    launchOptions: { slowMo: slowDebug ? 1000 : 0 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure'
   },

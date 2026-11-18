@@ -12,7 +12,7 @@ export const routeList = '7. Alex Sample #1001\n - P79Q\n - HPQK\n\n12. Jamie Ex
 export const screenshotText = 'Alex Sample #1001\nPackage ID\nP79Q\nPackage ID\nHPQK\nJamie Example #1002\nPackage ID\nAB12';
 
 export const test = base.extend({
-  app: async ({ page, context }, use) => {
+  app: async ({ page, context }, use, testInfo) => {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await context.route('**/*', async route => {
@@ -174,6 +174,7 @@ export const test = base.extend({
     };
     try { await use(app); }
     finally {
+      if (testInfo.project.use.launchOptions?.slowMo > 0) await page.waitForTimeout(3000);
       await page.evaluate(() => window.__appTest?.cleanup());
       expect(errors, 'No uncaught errors or unprovisioned network dependencies').toEqual([]);
     }
