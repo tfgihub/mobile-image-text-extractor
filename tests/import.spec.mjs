@@ -279,7 +279,7 @@ test('real OCR recovers obscured all-letter labels and isolated references acros
   await app.start();
   await app.scan('QVZX');
   await expect(page.locator('#matchStopNumber')).toHaveText('1');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
   await page.locator('#backButton').click();
   await page.locator('#imageInput').setInputFiles(files.slice(0, 1));
@@ -292,11 +292,11 @@ test('real OCR recovers obscured all-letter labels and isolated references acros
   await app.scan('QVZX');
   await expect(page.locator('#matchNewBadge')).toBeHidden();
   await expect(page.locator('#matchCount')).toHaveText('1 bag of 3 bags');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.scan('RWKP');
   await expect(page.locator('#matchStopNumber')).toHaveText('1');
   await expect(page.locator('#matchCount')).toHaveText('2 bags of 3 bags');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
 });
 

@@ -13,22 +13,24 @@ for (const format of ['QRCode', 'DataMatrix']) {
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
       audio: false
     });
-    await app.acknowledge();
+    await app.waitForNotice();
     await expect(app.cards.first()).toContainText('1/2 bags scanned');
     await app.stop();
   });
 }
 
-test('matched popup contains only the NEW badge, stop, code, progress and controls; decoding pauses', async ({ app, page }) => {
+test('matched popup contains only the NEW badge, stop, code, progress and timer; decoding pauses', async ({ app, page }) => {
   await app.open();
   await app.scan('synthetic00000000p79q');
   await expect(app.dialog).toHaveAccessibleName('New stop 7');
-  await expect(app.dialog).toHaveAccessibleDescription('P79Q 1 bag of 2 bags');
+  await expect(app.dialog).toHaveAccessibleDescription(/P79Q 1 bag of 2 bags Confirming in [12] seconds?/);
   await expect(page.locator('#matchTitle')).toHaveCSS('clip-path', 'inset(50%)');
   const visibleContents = await app.dialog.evaluate(dialog => [...dialog.children]
     .filter(node => getComputedStyle(node).display !== 'none' && getComputedStyle(node).clipPath !== 'inset(50%)')
     .map(node => node.textContent.trim()));
-  expect(visibleContents).toEqual(['NEW', '7', 'P79Q', '1 bag of 2 bags', 'OK', 'Rescan']);
+  expect(visibleContents.slice(0, -1)).toEqual(['NEW', '7', 'P79Q', '1 bag of 2 bags']);
+  expect(visibleContents.at(-1)).toMatch(/^Confirming in [12] seconds?$/);
+  await expect(app.dialog.locator('button')).toHaveCount(0);
   const badge = await page.locator('#matchNewBadge').boundingBox();
   const number = await page.locator('#matchStopNumber').boundingBox();
   expect(badge.y + badge.height).toBeLessThanOrEqual(number.y);
@@ -39,13 +41,13 @@ test('matched popup contains only the NEW badge, stop, code, progress and contro
   await expect(app.cards.first()).not.toHaveClass(/complete/);
   await page.keyboard.press('Escape');
   await expect(app.dialog).toBeVisible();
-  await app.acknowledge(true);
+  await app.interruptNotice();
   await app.scan('P79Q');
   await expect(page.locator('#matchNewBadge')).toBeHidden();
   await expect(app.dialog).toHaveAccessibleName('Stop 7');
   await expect(app.dialog).not.toContainText('Seen before');
   await expect(page.locator('#matchCount')).toHaveText('1 bag of 2 bags');
-  await page.locator('#matchOkButton').click();
+  await app.waitForNotice({ keepLabel: true });
   await expect(app.cards.first()).toContainText('1/2 bags scanned');
   const resumed = await page.evaluate(() => __appTest.metrics.decodes);
   await page.evaluate(() => { __appTest.codes = ['P79Q']; });
@@ -55,23 +57,23 @@ test('matched popup contains only the NEW badge, stop, code, progress and contro
   await app.stop();
 });
 
-test('out-of-order multi-bag and single-package stops complete only after OK, with independent totals', async ({ app, page }) => {
+test('out-of-order multi-bag and single-package stops complete only after countdown, with independent totals', async ({ app, page }) => {
   await app.open();
   await app.scan('HPQK');
   await expect(page.locator('#matchCount')).toHaveText('1 bag of 2 bags');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.scan('AB12');
   await expect(page.locator('#matchStopNumber')).toHaveText('12');
   await expect(page.locator('#matchNewBadge')).toBeVisible();
   await expect(page.locator('#matchCount')).toHaveText('1 bag of 1 bag');
   await expect(app.cards.nth(1)).not.toHaveClass(/complete/);
-  await app.acknowledge();
+  await app.waitForNotice();
   await expect(app.cards.nth(1)).toHaveClass(/complete/);
   await app.scan('P79Q');
   await expect(page.locator('#matchNewBadge')).toBeHidden();
   await expect(page.locator('#matchCount')).toHaveText('2 bags of 2 bags');
   await expect(app.cards.first()).not.toHaveClass(/complete/);
-  await app.acknowledge();
+  await app.waitForNotice();
   await expect(page.locator('.stop-card.complete')).toHaveCount(2);
   await app.stop();
 });
@@ -81,23 +83,23 @@ test('barcode scanning works when screenshot OCR is unavailable', async ({ app, 
   await app.open();
   await app.scan('P79Q');
   await expect(page.locator('#matchCount')).toHaveText('1 bag of 2 bags');
-  await app.acknowledge();
+  await app.waitForNotice();
   await expect(app.cards.first()).toContainText('1/2 bags scanned');
   expect(await page.evaluate(() => __appTest.metrics.ocrWorkers)).toBe(0);
   await app.stop();
 });
 
-test('appearance survives Rescan, camera restart and step changes; Reset works without confirmations', async ({ app, page }) => {
+test('appearance survives interrupted countdowns, camera restart and step changes; Reset works without confirmations', async ({ app, page }) => {
   await app.open();
   await app.scan('P79Q');
-  await app.acknowledge(true);
+  await app.interruptNotice();
   await app.stop();
   await page.locator('#backButton').click();
   await page.locator('#nextButton').click();
   await app.start();
   await app.scan('HPQK');
   await expect(page.locator('#matchNewBadge')).toBeHidden();
-  await app.acknowledge(true);
+  await app.interruptNotice();
   await app.stop();
   await expect(page.locator('#resetProgressButton')).toBeEnabled();
   await app.confirmDialog('#resetProgressButton');
@@ -106,7 +108,7 @@ test('appearance survives Rescan, camera restart and step changes; Reset works w
   await app.start();
   await app.scan('P79Q');
   await expect(page.locator('#matchNewBadge')).toBeVisible();
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
   await app.confirmDialog('#resetProgressButton');
   await expect(app.cards.first()).toContainText('0/2 bags scanned');
@@ -116,7 +118,7 @@ for (const method of ['Clear', 'empty editor']) {
   test(`${method} starts a new sorting run without saved matches`, async ({ app, page }) => {
     await app.open();
     await app.scan('P79Q');
-    await app.acknowledge();
+    await app.waitForNotice();
     await app.stop();
     await page.locator('#backButton').click();
     if (method === 'Clear') await app.confirmDialog('#clearButton');
@@ -128,7 +130,7 @@ for (const method of ['Clear', 'empty editor']) {
     await app.scan('P79Q');
     await expect(page.locator('#matchNewBadge')).toBeVisible();
     await expect(page.locator('#matchCount')).toHaveText('1 bag of 2 bags');
-    await app.acknowledge();
+    await app.waitForNotice();
     await app.stop();
   });
 }
@@ -150,7 +152,7 @@ for (const scenario of [
     for (const id of ['matchStopNumber', 'matchNewBadge', 'matchCount']) {
       await expect(page.locator('#' + id)).toBeHidden();
     }
-    await app.acknowledge();
+    await app.waitForNotice();
     await expect(page.locator('.found')).toHaveCount(0);
     await expect(page.locator('.stop-card.complete')).toHaveCount(0);
     await expect(page.locator('#stopList')).toHaveValue(scenario.list || routeList);
@@ -163,7 +165,7 @@ test('full exact ID wins over ambiguous suffix matches', async ({ app, page }) =
   await app.scan('trackonep79q');
   await expect(page.locator('#matchStopNumber')).toHaveText('7');
   await expect(page.locator('#matchCount')).toHaveText('1 bag of 1 bag');
-  await app.acknowledge();
+  await app.waitForNotice();
   await expect(app.cards.first()).toHaveClass(/complete/);
   await expect(app.cards.nth(1)).toContainText('0/1 bags scanned');
   await app.stop();
@@ -172,7 +174,7 @@ test('full exact ID wins over ambiguous suffix matches', async ({ app, page }) =
 test('unknown notices are suppressed per camera session and do not consume NEW history', async ({ app, page }) => {
   await app.open();
   await app.scan('ZZ99');
-  await app.acknowledge();
+  await app.waitForNotice();
   const decodes = await page.evaluate(() => __appTest.metrics.decodes);
   await page.evaluate(() => { __appTest.codes = ['ZZ99']; });
   await expect.poll(() => page.evaluate(() => __appTest.metrics.decodes)).toBeGreaterThan(decodes + 2);
@@ -181,18 +183,18 @@ test('unknown notices are suppressed per camera session and do not consume NEW h
   await app.start();
   await expect(app.dialog).toBeVisible();
   await expect(page.locator('#matchMessage')).toContainText('not in the stop list');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.scan('P79Q');
   await expect(page.locator('#matchNewBadge')).toBeVisible();
   await expect(page.locator('#matchMessage')).toBeHidden();
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
 });
 
 test('deleting a confirmed ID or clearing its bullet updates camera totals and re-add requires scanning again', async ({ app, page }) => {
   await app.open();
   await app.scan('P79Q');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
   await page.locator('#backButton').click();
   await app.edit(routeList.replace(' - P79Q', ' -'));
@@ -202,7 +204,7 @@ test('deleting a confirmed ID or clearing its bullet updates camera totals and r
   await app.start();
   await app.scan('P79Q');
   await expect(page.locator('#matchMessage')).toContainText('not in the stop list');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
   await page.locator('#backButton').click();
   await app.edit(routeList);
@@ -211,7 +213,7 @@ test('deleting a confirmed ID or clearing its bullet updates camera totals and r
   await app.start();
   await app.scan('P79Q');
   await expect(page.locator('#matchCount')).toHaveText('1 bag of 2 bags');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
 });
 
@@ -219,7 +221,7 @@ test('deleting unscanned IDs recomputes completion and removing a stop prunes on
   await app.open();
   for (const code of ['P79Q', 'AB12']) {
     await app.scan(code);
-    await app.acknowledge();
+    await app.waitForNotice();
   }
   await app.stop();
   await page.locator('#backButton').click();
@@ -245,7 +247,7 @@ test('empty stops are skipped and never complete; all-empty headings clear prior
   await expect(app.cards.first()).not.toHaveClass(/complete/);
   await app.scan('AB12');
   await expect(page.locator('#matchStopNumber')).toHaveText('12');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
   await page.locator('#backButton').click();
   await app.edit('7. Empty #1001\n -\n\n12. Jamie #1002\n -');
@@ -258,7 +260,7 @@ test('empty stops are skipped and never complete; all-empty headings clear prior
   await app.start();
   await app.scan('AB12');
   await expect(page.locator('#matchCount')).toHaveText('1 bag of 1 bag');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
 });
 

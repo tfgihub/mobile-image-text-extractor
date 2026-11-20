@@ -101,33 +101,38 @@ and **x bags of y bags** (with singular "bag" for one). Here, `x` is the number
 of unique confirmed packages for that stop plus this pending package (unless it
 was already confirmed); `y` is the
 number of unique IDs in the current
-edited screenshot list. Nothing counts until **OK**. **Rescan**
-dismisses the notice without changing progress, and confirmed codes
-never count twice.
+edited screenshot list. After a **2-second countdown**, the popup closes, the
+matched package is confirmed, and scanning resumes automatically. Already
+confirmed codes never count twice. There are no popup buttons.
 
 Matched popups show only the large stop number, package code and bag progress,
-plus **OK** and **Rescan**. The first popup for a stop number adds a separate
+plus the automatic countdown. The bag progress uses larger, bold text.
+The first popup for a stop number adds a separate
 **NEW** badge above the number, with larger bold text on a pale-blue pill in
 day mode and a deep-blue pill in night mode. Both color pairs maintain at
 least 4.5:1 text contrast. Later popups omit the badge, without a "Seen before"
 label. Showing the popup marks the stop
-as appeared even when **Rescan** is selected. This history survives stopping
+as appeared even when the countdown is interrupted. This history survives stopping
 and reopening the camera, changing steps, or continuing a saved run.
 **Reset Found Packages**, **Clear**, or an entirely cleared editor
 resets the new-stop markers. Reset is available even if a popup was shown
 without confirming any packages.
 
-A one-package stop displays **1 bag of 1 bag**. No customer name, duplicate ID,
+A one-package stop displays **1 bag of 1 bag** on a subtle blue background,
+coordinated with the NEW badge in both light and dark themes. Multi-package
+stops keep the neutral theme background. No customer name, duplicate ID,
 total caption, or per-stop "Only package"/"Last package" label clutters a
 matched popup. The final unconfirmed package across the entire list adds
-**Last package - OK completes the run**. **Rescan** leaves it incomplete;
-only **OK** marks the run **All packages scanned**, without another dialog.
+**Last package - confirming automatically**. Only countdown expiry marks
+the run **All packages scanned**, without another dialog. Backgrounding,
+closing/reloading the page, camera disconnection, or a saved-record conflict
+before expiry cancels the pending confirmation and clears its timer.
 Screen-reader names still identify new stops and stop numbers.
 Unknown/ambiguous barcode notices retain their warning explanations and never
-count packages. OK is still required before a matched stop can complete.
+count packages. They also close after two seconds and resume scanning.
 
 An already confirmed package can show its existing-stop popup again, with
-unchanged counts and no additional stop. Holding that same label after OK does
+unchanged counts and no additional stop. Holding that same label after the countdown does
 not immediately reopen it. Remove the code from view for at least about half a
 second, show a different matched package, or restart the camera to show it again.
 Brief blank-frame flicker does not rearm the same confirmed label. Repeating a
@@ -261,7 +266,7 @@ No test hooks are shipped in the application modules.
 | Screenshot import | Real OCR, both screenshot formats, photo/header filtering, shuffled overlaps, ambiguous/conflicting order dialogs, cancel/reload/storage safety, preserved route numbers, deduplicated case/short/full IDs, progress migration, edited-list merging, conflicts, unlabelled screen words, orphan/clipped rows, empty/unrecognized results |
 | Import failures | Bad files, continuing after a failed image, worker startup/cleanup, disabled busy controls, invalid-editor preservation |
 | Barcode matching | Real QR/Data Matrix decoding, full/suffix and case-insensitive matches, exact-match priority, unknown/unsupported/ambiguous/multiple codes, no Q/0 guessing, duplicate suppression |
-| Notices and completion | Minimal accessible popup, separate NEW badge, per-stop history, Rescan/OK, held-label suppression and rearming, repeat notices without double counting, final-package preview versus committed completion |
+| Notices and completion | Button-free two-second countdown, enlarged bag count, coordinated single-bag themes, separate NEW badge, per-stop history, interrupted-timer cancellation, held-label suppression and rearming, repeat notices without double counting, final-package preview versus committed completion |
 | Editing and reset | Cleared bullets, deletion/re-add, confirmed-move rejection including after invalid edits/reload, empty stops/all-empty headings, current camera totals, reset without confirmations, Clear/empty editor, cancelled confirmations |
 | Saved runs | Continue/Clear choices, exact list/count/history recovery, pending versus confirmed scans, theme independence, corrupt/unsupported records, blocked/quota/clear failures, stale-tab protection, narrow light/dark dialogs |
 | Camera lifecycle | No camera OCR, operation without Tesseract, rear-camera constraints, locked controls, permission/decoder failures, immediate cancellation, late old-session versus restarted-camera races, blank frames, background/pagehide and disconnection |

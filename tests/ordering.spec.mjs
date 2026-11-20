@@ -30,7 +30,7 @@ test('shuffled overlapping screenshots below the photo reconstruct route order a
   await app.start();
   await app.scan('CD34');
   await expect(page.locator('#matchStopNumber')).toHaveText('3');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
 });
 
@@ -121,7 +121,7 @@ test('contradictory screenshots explicitly require the user to override image or
 test('an existing confirmed run keeps manual numbers and appends new stops without an order prompt', async ({ app, page }) => {
   await app.open();
   await app.scan('P79Q');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
   await page.locator('#backButton').click();
   await app.upload([image([2, 0]), image([1, 0])]);
@@ -132,10 +132,10 @@ test('an existing confirmed run keeps manual numbers and appends new stops witho
   await app.start();
   await app.scan('P79Q');
   await expect(page.locator('#matchStopNumber')).toHaveText('7');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.scan('CD34');
   await expect(page.locator('#matchStopNumber')).toHaveText('13');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
 });
 

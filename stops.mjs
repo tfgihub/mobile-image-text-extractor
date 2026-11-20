@@ -1,5 +1,5 @@
-import { samePackage } from './identity.mjs?v=order12';
-import { packageLabelPattern, screenWordPattern, stopListStart } from './ocr.mjs?v=order12';
+import { samePackage } from './identity.mjs?v=timer13';
+import { packageLabelPattern, screenWordPattern, stopListStart } from './ocr.mjs?v=timer13';
 
 const streetType = '(?:STREET|ST|AVENUE|AVE|ROAD|RD|PLACE|PL|DRIVE|DR|COURT|CT|WAY|LANE|LN|BOULEVARD|BLVD|CIRCLE|CIR|TERRACE|TER|PARKWAY|PKWY|HIGHWAY|HWY|TRAIL|TRL|LOOP)';
 const addressPattern = new RegExp(

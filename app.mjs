@@ -1,10 +1,10 @@
-import { readStopList, updateStopList, formatImportWarnings, formatStops, addressKey } from './stops.mjs?v=order12';
-import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice, isRunComplete, movedConfirmedPackage } from './packages.mjs?v=order12';
-import { createLiveCamera } from './live-camera.mjs?v=order12';
-import { packageKey } from './identity.mjs?v=order12';
-import { runStorageKey, serializeRun, parseSavedRun } from './saved-run.mjs?v=order12';
-import { screenshotText } from './ocr.mjs?v=order12';
-import { planStopOrder, validStopOrder, reorderedStops } from './ordering.mjs?v=order12';
+import { readStopList, updateStopList, formatImportWarnings, formatStops, addressKey } from './stops.mjs?v=timer13';
+import { getScanStops, matchBarcode, stopProgress, pruneReadings, getPackageNotice, isRunComplete, movedConfirmedPackage } from './packages.mjs?v=timer13';
+import { createLiveCamera } from './live-camera.mjs?v=timer13';
+import { packageKey } from './identity.mjs?v=timer13';
+import { runStorageKey, serializeRun, parseSavedRun } from './saved-run.mjs?v=timer13';
+import { screenshotText } from './ocr.mjs?v=timer13';
+import { planStopOrder, validStopOrder, reorderedStops } from './ordering.mjs?v=timer13';
 
 const byId = id => document.getElementById(id);
 const stopList = byId('stopList');
@@ -25,6 +25,8 @@ let importReports = [];
 let cameraActive = false;
 let pending;
 let releaseNotice;
+let noticeTimer;
+let countdownTimer;
 let acceptedText = '';
 let acceptedStops = [];
 let assignmentError = '';
@@ -176,11 +178,54 @@ function showStep(number) {
 }
 
 function dismissNotice() {
+  clearTimeout(noticeTimer);
+  clearInterval(countdownTimer);
+  noticeTimer = countdownTimer = undefined;
   pending = null;
   if (dialog.open) dialog.close();
   const resolve = releaseNotice;
   releaseNotice = null;
   if (resolve) resolve();
+}
+
+function completeTimedNotice(expected) {
+  if (pending !== expected) return;
+  if (document.hidden) {
+    camera.stop('Camera stopped in the background. Open it again to resume.');
+    return;
+  }
+  if (!cameraActive || storageConflict) {
+    dismissNotice();
+    return;
+  }
+  persistRun();
+  if (pending !== expected || storageConflict) return;
+  if (expected.kind === 'candidate' || expected.kind === 'duplicate') {
+    const result = matchBarcode(expected.barcode, stops, readings);
+    if (result.kind === 'check') {
+      cameraStatus.textContent = result.message;
+      dismissNotice();
+      return;
+    }
+    if (result.kind === 'candidate') readings.add(packageKey(result.packageId));
+    renderProgress();
+    if (storageConflict) return;
+  }
+  cameraStatus.textContent = 'Scanning Data Matrix / QR codes... Show one whole package label.';
+  dismissNotice();
+}
+
+function startNoticeTimer(expected) {
+  const deadline = performance.now() + 2000;
+  const action = expected.kind === 'candidate' ? 'Confirming' : 'Resuming';
+  const update = () => {
+    if (pending !== expected) return;
+    const seconds = Math.max(0, Math.ceil((deadline - performance.now()) / 1000));
+    byId('matchCountdown').textContent = `${action} in ${seconds} ${seconds === 1 ? 'second' : 'seconds'}`;
+  };
+  update();
+  countdownTimer = setInterval(update, 1000);
+  noticeTimer = setTimeout(() => completeTimedNotice(expected), 2000);
 }
 
 const camera = createLiveCamera({
@@ -212,6 +257,7 @@ const camera = createLiveCamera({
     if (result.kind === 'check') alerted.add(key);
     pending = result;
     const matched = result.kind === 'candidate' || result.kind === 'duplicate';
+    dialog.classList.toggle('single-bag', matched && result.stop.packages.length === 1);
     const notice = matched ? getPackageNotice(result.stop, readings, shownStops, result.packageId) : null;
     byId('matchTitle').textContent = matched ? `${notice.isNew ? 'New stop' : 'Stop'} ${result.stop.number}` : 'Check this package';
     byId('matchTitle').classList.toggle('sr-only', matched);
@@ -223,15 +269,14 @@ const camera = createLiveCamera({
     const finishesRun = matched && isRunComplete(stops, readings, result.packageId);
     byId('matchCompleteMessage').hidden = !finishesRun;
     byId('matchCompleteMessage').textContent = finishesRun
-      ? (isRunComplete(stops, readings) ? 'All packages scanned' : 'Last package - OK completes the run')
+      ? (isRunComplete(stops, readings) ? 'All packages scanned' : 'Last package - confirming automatically')
       : '';
     byId('matchMessage').textContent = matched ? '' : result.message;
-    byId('matchOkButton').textContent = 'OK';
-    byId('matchOkButton').setAttribute('aria-label', matched ? 'Confirm package and resume scanning' : 'Resume scanning');
-    byId('matchOkButton').disabled = false;
     cameraStatus.textContent = result.kind === 'duplicate'
-      ? 'This package is already counted. Scanning paused; OK resumes without changing progress.'
-      : 'Barcode decoded. Scanning paused; nothing is counted until confirmation.';
+      ? 'This package is already counted. Scanning resumes automatically without changing progress.'
+      : matched
+        ? 'Barcode decoded. Confirming automatically after the 2-second countdown.'
+        : 'Check this package. Nothing is counted; scanning resumes after the countdown.';
     const acknowledgement = new Promise(resolve => { releaseNotice = resolve; });
     dialog.showModal();
     if (matched) {
@@ -239,7 +284,10 @@ const camera = createLiveCamera({
       lastPresentedId = packageKey(result.packageId);
       persistRun();
     }
-    byId('matchTitle').focus({ preventScroll: true });
+    if (pending === result && !storageConflict) {
+      startNoticeTimer(result);
+      byId('matchTitle').focus({ preventScroll: true });
+    }
     await acknowledgement;
   }
 });
@@ -254,28 +302,6 @@ byId('cameraButton').addEventListener('click', () => {
   }
 });
 dialog.addEventListener('cancel', event => event.preventDefault());
-byId('rescanButton').addEventListener('click', () => {
-  cameraStatus.textContent = pending?.kind === 'duplicate'
-    ? 'Rescanning. This package was already counted; progress is unchanged.'
-    : 'Rescanning. This package was not counted.';
-  dismissNotice();
-});
-byId('matchOkButton').addEventListener('click', () => {
-  if (!pending) return;
-  if (pending.kind === 'candidate' || pending.kind === 'duplicate') {
-    const result = matchBarcode(pending.barcode, stops, readings);
-    if (result.kind === 'check') {
-      cameraStatus.textContent = result.message;
-      dismissNotice();
-      return;
-    }
-    if (result.kind === 'candidate') readings.add(packageKey(result.packageId));
-    renderProgress();
-    if (storageConflict) return;
-  }
-  cameraStatus.textContent = 'Scanning Data Matrix / QR codes... Show one whole package label.';
-  dismissNotice();
-});
 byId('resetProgressButton').addEventListener('click', () => {
   if (!confirm('Reset found-package progress? The list will be kept.')) return;
   readings.clear();

@@ -29,7 +29,7 @@ for (const failure of ['permission', 'decoder', 'missing decoder']) {
   test(`${failure} failure surfaces an error, releases resources and preserves progress`, async ({ app, page }) => {
     await app.open();
     await app.scan('P79Q');
-    await app.acknowledge();
+    await app.waitForNotice();
     await app.stop();
     await page.evaluate(failure => {
       if (failure === 'permission') __appTest.permissionError = 'Camera permission denied';
@@ -50,7 +50,7 @@ for (const failure of ['permission', 'decoder', 'missing decoder']) {
       await app.start();
       await app.scan('HPQK');
       await expect(page.locator('#matchCount')).toHaveText('2 bags of 2 bags');
-      await app.acknowledge();
+      await app.waitForNotice();
       await app.stop();
     }
   });
@@ -94,7 +94,7 @@ for (const event of ['background', 'pagehide', 'disconnection']) {
     await app.start();
     await app.scan('P79Q');
     await expect(page.locator('#matchNewBadge')).toBeHidden();
-    await app.acknowledge(true);
+    await app.interruptNotice();
     await app.stop();
   });
 }
@@ -122,7 +122,7 @@ test('Copy uses current editor text; denied clipboard permission selects the lis
 test('cancelled Reset and Clear dialogs keep the list, scans and NEW history', async ({ app, page }) => {
   await app.open();
   await app.scan('P79Q');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
   page.once('dialog', dialog => dialog.dismiss());
   await page.locator('#resetProgressButton').click();
@@ -136,7 +136,7 @@ test('cancelled Reset and Clear dialogs keep the list, scans and NEW history', a
   await app.scan('HPQK');
   await expect(page.locator('#matchNewBadge')).toBeHidden();
   await expect(page.locator('#matchCount')).toHaveText('2 bags of 2 bags');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
 });
 
@@ -175,18 +175,38 @@ for (const width of [320, 390]) {
       expect(badgeStyle.background).toHaveLength(3);
       expect(Math.max(...badgeStyle.background) - Math.min(...badgeStyle.background)).toBeGreaterThanOrEqual(30);
       expect(contrastRatio(badgeStyle.foreground, badgeStyle.background)).toBeGreaterThanOrEqual(4.5);
+      await expect(app.dialog).toHaveClass('single-bag');
+      const countStyle = await page.locator('#matchCount').evaluate(node => {
+        const style = getComputedStyle(node);
+        const popup = getComputedStyle(node.closest('dialog'));
+        return {
+          fontSize: parseFloat(style.fontSize),
+          foreground: style.color.match(/\d+/g).slice(0, 3).map(Number),
+          background: popup.backgroundColor.match(/\d+/g).slice(0, 3).map(Number),
+          popupColor: popup.backgroundColor
+        };
+      });
+      expect(countStyle.fontSize).toBeGreaterThanOrEqual(30);
+      expect(contrastRatio(countStyle.foreground, countStyle.background)).toBeGreaterThanOrEqual(4.5);
+      expect(countStyle.background[2] - countStyle.background[0]).toBeGreaterThanOrEqual(12);
+      expect(countStyle.popupColor).not.toBe(await page.locator('#uploadStep').evaluate(node => getComputedStyle(node).backgroundColor));
       const box = await app.dialog.boundingBox();
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(width);
       expect(box.height).toBeLessThanOrEqual(780);
       expect(await app.dialog.evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth)).toBe(true);
-      await app.acknowledge(true);
+      await app.interruptNotice();
       await app.scan('AB12');
       await expect(badge).toBeHidden();
-      await app.acknowledge();
+      await app.waitForNotice();
       await expect(app.cards.nth(1)).toHaveClass(/complete/);
       expect(await app.cards.nth(1).evaluate(card => getComputedStyle(card).backgroundColor))
         .not.toBe(await app.cards.first().evaluate(card => getComputedStyle(card).backgroundColor));
+      await app.scan('P79Q');
+      await expect(app.dialog).not.toHaveClass(/single-bag/);
+      expect(await app.dialog.evaluate(node => getComputedStyle(node).backgroundColor))
+        .toBe(await page.locator('#uploadStep').evaluate(node => getComputedStyle(node).backgroundColor));
+      await app.waitForNotice();
       await app.stop();
     });
   }

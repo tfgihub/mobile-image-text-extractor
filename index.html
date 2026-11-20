@@ -21,7 +21,7 @@
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.2/dist/iife/reader/index.js"></script>
-  <script type="module" src="./app.mjs?v=order12"></script>
+  <script type="module" src="./app.mjs?v=timer13"></script>
   <style>
     :root {
       color-scheme: light;
@@ -30,6 +30,7 @@
       --button: #171717; --on-button: #fff; --disabled: #e8e8e8;
       --success: #176b3a; --complete: #e7f7ec; --complete-border: #a3d8b3;
       --new-background: #dbeafe; --new-text: #1e40af; --new-border: #93c5fd;
+      --single-background: #eff6ff;
       --error: #a42f1b;
     }
     :root[data-theme="dark"] {
@@ -39,6 +40,7 @@
       --button: #f4f4f5; --on-button: #111214; --disabled: #292b30;
       --success: #8ee3ac; --complete: #123022; --complete-border: #2b6847;
       --new-background: #172d4a; --new-text: #bfdbfe; --new-border: #315a87;
+      --single-background: #101e31;
       --error: #ffb4a1;
     }
     * { box-sizing: border-box; }
@@ -101,14 +103,16 @@
     #matchNewBadge { display: table; margin: 0 auto 12px; padding: 8px 20px; border: 1px solid var(--new-border); border-radius: 999px; color: var(--new-text); background: var(--new-background); font-size: 18px; line-height: 1.25; font-weight: 800; letter-spacing: .1em; }
     #matchStopNumber { display: block; margin: 12px 0 8px; font-size: clamp(96px, 26vw, 144px); line-height: 1.1; font-weight: 800; letter-spacing: -4px; }
     #matchCode { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 28px; font-weight: 600; margin: 8px 0 16px; letter-spacing: 2px; overflow-wrap: anywhere; }
-    #matchCount { font-size: 22px; font-weight: 600; margin: 0 0 24px; color: var(--muted); }
+    #matchDialog.single-bag { background: var(--single-background); border-color: var(--new-border); }
+    #matchCount { font-size: clamp(30px, 8vw, 38px); line-height: 1.2; font-weight: 700; margin: 0 0 16px; color: var(--text); text-wrap: balance; }
+    #matchCountdown { font-size: 14px; color: var(--muted); margin: 16px 0 0; }
     #matchMessage { color: var(--error); font-size: 13px; }
     .completion-notice { padding: 12px; margin: 16px 0; border: 1px solid var(--complete-border); border-radius: 12px; color: var(--success); background: var(--complete); font-size: 16px; font-weight: 700; }
     #saveStatus { text-align: center; margin: 8px 12px 0; }
     #saveStatus.storage-error { color: var(--error); }
     #restoreDialog h2 { font-size: 20px; color: var(--text); }
     #restoreMessage { font-size: 14px; color: var(--muted); }
-    #rescanButton, #clearSavedRunButton { margin-top: 10px; }
+    #clearSavedRunButton { margin-top: 10px; }
     #stopOrderDialog h2 { font-size: 20px; color: var(--text); }
     #stopOrderMessage { color: var(--muted); font-size: 14px; }
     #stopOrderGroups { list-style: none; padding: 0; max-height: 42dvh; overflow-y: auto; text-align: left; }
@@ -187,7 +191,7 @@
     <button id="resumeRunButton" type="button" autofocus>Continue previous run</button>
     <button id="clearSavedRunButton" type="button" class="secondary">Clear records and start fresh</button>
   </dialog>
-  <dialog id="matchDialog" aria-labelledby="matchTitle" aria-describedby="matchCode matchCount matchMessage matchCompleteMessage">
+  <dialog id="matchDialog" aria-labelledby="matchTitle" aria-describedby="matchCode matchCount matchMessage matchCompleteMessage matchCountdown">
     <h2 id="matchTitle" tabindex="-1">Package found at stop</h2>
     <p id="matchNewBadge" hidden>NEW</p>
     <span id="matchStopNumber"></span>
@@ -195,8 +199,7 @@
     <p id="matchCount" aria-live="polite"></p>
     <p id="matchMessage" role="status"></p>
     <p id="matchCompleteMessage" class="completion-notice" role="status" hidden></p>
-    <button id="matchOkButton" type="button" disabled>OK</button>
-    <button id="rescanButton" type="button" class="secondary" aria-label="Rescan without counting">Rescan</button>
+    <p id="matchCountdown" role="timer" aria-live="off"></p>
   </dialog>
 </body>
 </html>

@@ -35,6 +35,7 @@ export const test = base.extend({
         headers: { 'Access-Control-Allow-Origin': '*' }
       });
     });
+    await page.clock.install();
     await page.goto('/');
     await expect(page.locator('#themeButton')).toHaveAttribute('aria-label', /Switch to/);
     const installDevices = () => page.evaluate(() => {
@@ -122,7 +123,7 @@ export const test = base.extend({
       },
       async start() {
         await page.locator('#cameraButton').click();
-        await expect(page.locator('#cameraStatus')).toContainText(/Scanning Data Matrix|Barcode decoded/);
+        await expect(page.locator('#cameraStatus')).toContainText(/Scanning Data Matrix|Barcode decoded|Check this package|This package is already counted/);
       },
       async stop() {
         await page.locator('#cameraButton').click();
@@ -136,10 +137,18 @@ export const test = base.extend({
         await page.evaluate(codes => { __appTest.codes = codes; }, Array.isArray(codes) ? codes : [codes]);
         await expect(app.dialog).toBeVisible();
       },
-      async acknowledge(rescan = false) {
-        await page.evaluate(() => { __appTest.codes = []; });
-        await page.locator(rescan ? '#rescanButton' : '#matchOkButton').click();
+      async waitForNotice({ keepLabel = false } = {}) {
+        if (!keepLabel) await page.evaluate(() => { __appTest.codes = []; });
+        await page.clock.fastForward(2000);
         await expect(app.dialog).not.toBeVisible();
+      },
+      async interruptNotice() {
+        await page.evaluate(() => {
+          __appTest.codes = [];
+          __appTest.streams.at(-1).getVideoTracks()[0].dispatchEvent(new Event('ended'));
+        });
+        await expect(app.dialog).not.toBeVisible();
+        await app.start();
       },
       async confirmDialog(button) {
         page.once('dialog', dialog => dialog.accept());

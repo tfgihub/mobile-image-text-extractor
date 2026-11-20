@@ -13,7 +13,7 @@ async function resume(page) {
 test('reopening offers a non-destructive choice and restores list, counts and NEW history with camera off', async ({ app, page }) => {
   await app.open();
   await app.scan('P79Q');
-  await app.acknowledge();
+  await app.waitForNotice();
   const before = await stored(page);
   await app.reload();
   await expect(page.locator('#restoreDialog')).toBeVisible();
@@ -30,7 +30,7 @@ test('reopening offers a non-destructive choice and restores list, counts and NE
   await app.scan('P79Q');
   await expect(page.locator('#matchNewBadge')).toBeHidden();
   await expect(page.locator('#matchCount')).toHaveText('1 bag of 2 bags');
-  await app.acknowledge();
+  await app.waitForNotice();
   expect(parseSavedRun(await stored(page)).readings.size).toBe(1);
   await app.stop();
 });
@@ -48,7 +48,7 @@ test('clear on reopening removes package records but preserves the chosen theme'
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
 });
 
-test('a pending package saves appearance but is never confirmed by reload or Rescan', async ({ app, page }) => {
+test('a pending package saves appearance but is never confirmed by reload or an interrupted countdown', async ({ app, page }) => {
   await app.open('7. Example\n - AB12');
   await app.scan('AB12');
   expect([...parseSavedRun(await stored(page)).readings]).toEqual([]);
@@ -60,22 +60,22 @@ test('a pending package saves appearance but is never confirmed by reload or Res
   await app.start();
   await app.scan('AB12');
   await expect(page.locator('#matchNewBadge')).toBeHidden();
-  await expect(page.locator('#matchCompleteMessage')).toHaveText('Last package - OK completes the run');
-  await app.acknowledge(true);
+  await expect(page.locator('#matchCompleteMessage')).toHaveText('Last package - confirming automatically');
+  await app.interruptNotice();
   await expect(page.locator('#completionStatus')).toBeHidden();
   expect(parseSavedRun(await stored(page)).readings.size).toBe(0);
   await app.stop();
 });
 
-test('only final OK completes the run; an already complete repeat does not add another bag', async ({ app, page }) => {
+test('only final countdown expiry completes the run; an already complete repeat does not add another bag', async ({ app, page }) => {
   await app.open('7. Empty\n -\n\n12. Example\n - AB12');
   await app.scan('AB12');
-  await expect(page.locator('#matchCompleteMessage')).toHaveText('Last package - OK completes the run');
+  await expect(page.locator('#matchCompleteMessage')).toHaveText('Last package - confirming automatically');
   await expect(page.locator('#completionStatus')).toBeHidden();
-  await app.acknowledge(true);
+  await app.interruptNotice();
   await expect(app.cards.nth(1)).not.toHaveClass(/complete/);
   await app.scan('AB12');
-  await app.acknowledge();
+  await app.waitForNotice();
   await expect(page.locator('#completionStatus')).toBeVisible();
   await expect(app.cards.first()).not.toHaveClass(/complete/);
   await app.stop();
@@ -86,7 +86,7 @@ test('only final OK completes the run; an already complete repeat does not add a
   await app.scan('AB12');
   await expect(page.locator('#matchCompleteMessage')).toHaveText('All packages scanned');
   await expect(page.locator('#matchCount')).toHaveText('1 bag of 1 bag');
-  await app.acknowledge();
+  await app.waitForNotice();
   expect(parseSavedRun(await stored(page)).readings.size).toBe(1);
   await app.stop();
 });
@@ -94,7 +94,7 @@ test('only final OK completes the run; an already complete repeat does not add a
 test('a held confirmed label and brief blank flicker stay suppressed; a deliberate absence rearms it', async ({ app, page }) => {
   await app.open();
   await app.scan('P79Q');
-  await page.locator('#matchOkButton').click();
+  await app.waitForNotice({ keepLabel: true });
   const count = await page.evaluate(() => __appTest.metrics.decodes);
   await expect.poll(() => page.evaluate(() => __appTest.metrics.decodes)).toBeGreaterThan(count + 3);
   await expect(app.dialog).not.toBeVisible();
@@ -107,12 +107,12 @@ test('a held confirmed label and brief blank flicker stay suppressed; a delibera
   await app.scan('P79Q');
   await expect(page.locator('#matchCount')).toHaveText('1 bag of 2 bags');
   await expect(page.locator('#matchNewBadge')).toBeHidden();
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.scan('HPQK');
-  await app.acknowledge(true);
+  await app.interruptNotice();
   await app.scan('P79Q');
   await expect(page.locator('#matchCount')).toHaveText('1 bag of 2 bags');
-  await app.acknowledge(true);
+  await app.interruptNotice();
   await expect(app.cards.first()).toContainText('1/2 bags scanned');
   await app.stop();
 });
@@ -120,7 +120,7 @@ test('a held confirmed label and brief blank flicker stay suppressed; a delibera
 test('overlapping import preserves route numbers and confirmed progress when a short ID becomes full', async ({ app, page }) => {
   await app.open();
   await app.scan('P79Q');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
   await page.locator('#backButton').click();
   await app.upload(['Alex Sample #1001\nUnknown TRACKINGP79Q\nNEXT\nALPH']);
@@ -139,7 +139,7 @@ test('manual case and short/full duplicates never inflate the saved bag total', 
   await app.open('7. Example\n - p79q\n - TRACKINGP79Q\n - trackingp79q');
   await app.scan('TRACKINGP79Q');
   await expect(page.locator('#matchCount')).toHaveText('1 bag of 1 bag');
-  await app.acknowledge();
+  await app.waitForNotice();
   await expect(app.cards.first()).toContainText('1/1 bags scanned');
   await app.stop();
   await app.reload();
@@ -150,7 +150,7 @@ test('manual case and short/full duplicates never inflate the saved bag total', 
 test('an ambiguous upgrade explains why the old short-code confirmation must be scanned again', async ({ app, page }) => {
   await app.open('7. Example\n - AB12');
   await app.scan('AB12');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
   await page.locator('#backButton').click();
   await app.edit('7. Example\n - FIRSTAB12\n - SECONDAB12');
@@ -163,7 +163,7 @@ test('an ambiguous upgrade explains why the old short-code confirmation must be 
 test('a confirmed package cannot change stops; reset explicitly allows a corrected assignment', async ({ app, page }) => {
   await app.open();
   await app.scan('P79Q');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
   await page.locator('#backButton').click();
   await app.edit(movedList);
@@ -183,7 +183,7 @@ test('a confirmed package cannot change stops; reset explicitly allows a correct
 test('a partially invalid saved editor cannot bypass confirmed assignment protection after reopening', async ({ app, page }) => {
   await app.open();
   await app.scan('P79Q');
-  await app.acknowledge();
+  await app.waitForNotice();
   await app.stop();
   await page.locator('#backButton').click();
   await app.edit(routeList.replace('P79Q', 'P79'));
@@ -210,7 +210,7 @@ test('blocked storage shows a visible memory-only warning without blocking the w
   await expect(page.locator('#saveStatus')).toContainText('Browser storage is unavailable');
   await app.open();
   await app.scan('P79Q');
-  await app.acknowledge();
+  await app.waitForNotice();
   await expect(app.cards.first()).toContainText('1/2 bags scanned');
   await expect(page.locator('#saveStatus')).toContainText('only in this page');
   await app.stop();
@@ -321,7 +321,7 @@ for (const theme of ['light', 'dark']) {
     expect(match.x + match.width).toBeLessThanOrEqual(320);
     expect(match.height).toBeLessThanOrEqual(640);
     expect(await app.dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
-    await app.acknowledge();
+    await app.waitForNotice();
     await app.stop();
   });
 }
